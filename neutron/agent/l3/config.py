@@ -40,27 +40,6 @@ OPTS = [
                deprecated_for_removal=True,
                help=_("Name of bridge used for external network "
                       "traffic.")),
-<<<<<<< HEAD
-    cfg.StrOpt('external_network_interface', default='',
-               help=_("Name of interface used for external network "
-                      "traffic control.")),
-    cfg.StrOpt('fip_qos_metadata_key', default='fip_qos',
-               help=_("Key of metadata used for external network "
-                      "traffic control.")),
-    cfg.StrOpt('fip_qos_max_ingress_rate', default='40Mbit',
-               help=_("Max rate value used for external network "
-                      "ingress traffic control.")),
-    cfg.StrOpt('fip_qos_max_ingress_burst', default='40Mbit',
-               help=_("Max burst value used for external network "
-                      "ingress traffic control.")),
-    cfg.StrOpt('fip_qos_max_egress_rate', default='80Mbit',
-               help=_("Max rate value used for external network "
-                      "egress traffic control.")),
-    cfg.StrOpt('fip_qos_max_egress_burst', default='80Mbit',
-               help=_("Max burst value used for external network "
-                      "egress traffic control.")),
-=======
->>>>>>> parent of 6a4e765... fip_qos_improvement
     cfg.IntOpt('metadata_port',
                default=9697,
                help=_("TCP Port used by Neutron metadata namespace "
