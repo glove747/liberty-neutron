@@ -52,6 +52,9 @@ class AgentMixin(object):
     def get_ports_by_subnet(self, subnet_id):
         return self.plugin_rpc.get_ports_by_subnet(self.context, subnet_id)
 
+    def get_port_by_floatingip(self, floating_ip):
+        return self.plugin_rpc.get_port_by_floatingip(self.context, floating_ip)
+
     def add_arp_entry(self, context, payload):
         """Add arp entry into router namespace.  Called from RPC."""
         router_id = payload['router_id']

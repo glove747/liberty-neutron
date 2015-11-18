@@ -242,6 +242,21 @@ class L3RpcCallback(object):
         filters = {'fixed_ips': {'subnet_id': [subnet_id]}}
         return self.plugin.get_ports(context, filters=filters)
 
+    def get_port_by_floatingip(self, context, **kwargs):
+        """DVR: RPC called by dvr-agent to get port for floatingip."""
+        floating_ip = kwargs.get('floating_ip')
+        LOG.debug("DVR: floatingip.ip_address: %s", floating_ip)
+        filters = {
+            'device_owner': [constants.DEVICE_OWNER_FLOATINGIP],
+            'fixed_ips': {'ip_address': [floating_ip]}
+        }
+        ports = self.plugin.get_ports(context, filters=filters)
+        if ports and len(ports) == 1:
+            return ports[0]
+        else:
+            LOG.error("get_port_by_floatingip found not single, "
+                      "floating_ip: %s, ports: %s", floating_ip, ports)
+
     @db_api.retry_db_errors
     def get_agent_gateway_port(self, context, **kwargs):
         """Get Agent Gateway port for FIP.

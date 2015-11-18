@@ -30,6 +30,10 @@ FIP_2_ROUTER_DEV_PREFIX = 'fpr-'
 ROUTER_2_FIP_DEV_PREFIX = namespaces.ROUTER_2_FIP_DEV_PREFIX
 # Route Table index for FIPs
 FIP_RT_TBL = 16
+# Rule Route Table index start for FIPs
+FIP_SUBNET_RT_START = 50
+# Rule Route Table index end for FIPs
+FIP_SUBNET_RT_END = 200
 FIP_LL_SUBNET = '169.254.30.0/23'
 # Rule priority range for FIPs
 FIP_PR_START = 32768

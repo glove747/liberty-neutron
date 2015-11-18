@@ -13,7 +13,7 @@
 #    under the License.
 
 import netaddr
-
+import traceback
 from oslo_log import log as logging
 
 from neutron.agent.l3 import namespaces
@@ -179,6 +179,7 @@ class RouterInfo(object):
         try:
             self.process_floating_ip_nat_rules()
         except Exception:
+            LOG.exception(traceback.format_exc())
             # TODO(salv-orlando): Less broad catching
             raise n_exc.FloatingIpSetupException(
                 'L3 agent failure to setup NAT for floating IPs')
@@ -256,6 +257,7 @@ class RouterInfo(object):
         try:
             return self.process_floating_ip_addresses(interface_name)
         except Exception:
+            LOG.exception(traceback.format_exc())
             # TODO(salv-orlando): Less broad catching
             raise n_exc.FloatingIpSetupException('L3 agent failure to setup '
                 'floating IPs')
