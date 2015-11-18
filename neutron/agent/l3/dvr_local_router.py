@@ -19,7 +19,9 @@ from oslo_utils import excutils
 import six
 from neutron.agent.l3 import dvr_fip_ns
 from neutron.agent.l3 import dvr_router_base
+from neutron.agent.l3 import nova
 from neutron.agent.linux import ip_lib
+from neutron.agent.linux import tc_lib
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions
 from neutron.common import utils as common_utils
@@ -283,6 +285,72 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 self.fip_ns.delete()
                 self.fip_ns = None
 
+    def _get_metadata(self, fip):
+        try:
+            port = self.agent.get_port_by_id(fip['port_id'])
+            key = self.agent_conf.fip_qos_metadata_key
+            metadata = nova.NovaClient().get_metadata(port['device_id'],
+                                                      key)
+            return metadata
+        except Exception, err:
+            LOG.warning("Getting metadata error: %s", err)
+            return {}
+
+    def _process_metadata(self, metadata):
+        if not metadata:
+            metadata = {
+                'ingress': {
+                    'rate': self.agent_conf.fip_qos_max_ingress_rate,
+                    'burst': self.agent_conf.fip_qos_max_ingress_burst
+                },
+                'egress': {
+                    'rate': self.agent_conf.fip_qos_max_egress_rate,
+                    'burst': self.agent_conf.fip_qos_max_egress_burst
+                }
+            }
+        if not ('ingress' in metadata):
+            metadata['ingress'] = {
+                'rate': self.agent_conf.fip_qos_max_ingress_rate,
+                'burst': self.agent_conf.fip_qos_max_ingress_burst
+            }
+        if not ('egress' in metadata):
+            metadata['egress'] = {
+                'rate': self.agent_conf.fip_qos_max_egress_rate,
+                'burst': self.agent_conf.fip_qos_max_egress_burst
+            }
+        if not ('rate' in metadata['ingress']):
+            metadata['ingress']['rate'] = \
+                self.agent_conf.fip_qos_max_ingress_rate
+        if not ('burst' in metadata['ingress']):
+            metadata['ingress']['burst'] = \
+                self.agent_conf.fip_qos_max_ingress_burst
+        if not ('rate' in metadata['egress']):
+            metadata['egress']['rate'] = \
+                self.agent_conf.fip_qos_max_egress_rate
+        if not ('burst' in metadata['egress']):
+            metadata['egress']['burst'] = \
+                self.agent_conf.fip_qos_max_egress_burst
+        return metadata
+
+    def floating_ip_added_qos(self, fip):
+        try:
+            metadata = self._get_metadata(fip)
+            metadata = self._process_metadata(metadata)
+            ip_cidr = common_utils.ip_to_cidr(fip['floating_ip_address'])
+            device = self.agent_conf.external_network_interface
+            tc_wrapper = tc_lib.TcWrapper()
+            tc_wrapper.tc.add_qos(ip_cidr, device, metadata)
+        except Exception, err:
+            LOG.warning("Adding floating ip qos error: %s", err)
+
+    def floating_ip_removed_qos(self, fip_cidr):
+        try:
+            device = self.agent_conf.external_network_interface
+            tc_wrapper = tc_lib.TcWrapper()
+            tc_wrapper.tc.remove_qos(fip_cidr, device)
+        except Exception, err:
+            LOG.warning("Removing Floating ip qos error: %s", err)
+
     def add_floating_ip(self, fip, interface_name, device):
         if not self._add_fip_addr_to_device(fip, device):
             return l3_constants.FLOATINGIP_STATUS_ERROR
@@ -290,11 +358,13 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         # Special Handling for DVR - update FIP namespace
         ip_cidr = common_utils.ip_to_cidr(fip['floating_ip_address'])
         self.floating_ip_added_dist(fip, ip_cidr)
+        self.floating_ip_added_qos(fip)
         return l3_constants.FLOATINGIP_STATUS_ACTIVE
 
     def remove_floating_ip(self, device, ip_cidr):
         super(DvrLocalRouter, self).remove_floating_ip(device, ip_cidr)
         self.floating_ip_removed_dist(ip_cidr)
+        self.floating_ip_removed_qos(ip_cidr)
 
     def _get_internal_port(self, subnet_id):
         """Return internal router port based on subnet_id."""

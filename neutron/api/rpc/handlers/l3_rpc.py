@@ -257,6 +257,12 @@ class L3RpcCallback(object):
             LOG.error("get_port_by_floatingip found not single, "
                       "floating_ip: %s, ports: %s", floating_ip, ports)
 
+    def get_port_by_id(self, context, **kwargs):
+        """DVR: RPC called by dvr-agent to get port by id."""
+        id = kwargs.get('id')
+        LOG.debug("DVR: id: %s", id)
+        return self.plugin.get_port(context, id)
+
     @db_api.retry_db_errors
     def get_agent_gateway_port(self, context, **kwargs):
         """Get Agent Gateway port for FIP.
