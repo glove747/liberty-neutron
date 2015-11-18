@@ -43,7 +43,7 @@ OPTS = [
     cfg.StrOpt('external_network_interface', default='',
                help=_("Name of interface used for external network "
                       "traffic control.")),
-    cfg.StrOpt('fip_qos_metadata_key', default='fip-qos',
+    cfg.StrOpt('fip_qos_metadata_key', default='fip_qos',
                help=_("Key of metadata used for external network "
                       "traffic control.")),
     cfg.StrOpt('fip_qos_max_ingress_rate', default='40Mbit',
