@@ -40,6 +40,7 @@ OPTS = [
                deprecated_for_removal=True,
                help=_("Name of bridge used for external network "
                       "traffic.")),
+<<<<<<< HEAD
     cfg.StrOpt('external_network_interface', default='',
                help=_("Name of interface used for external network "
                       "traffic control.")),
@@ -58,6 +59,8 @@ OPTS = [
     cfg.StrOpt('fip_qos_max_egress_burst', default='80Mbit',
                help=_("Max burst value used for external network "
                       "egress traffic control.")),
+=======
+>>>>>>> parent of 6a4e765... fip_qos_improvement
     cfg.IntOpt('metadata_port',
                default=9697,
                help=_("TCP Port used by Neutron metadata namespace "

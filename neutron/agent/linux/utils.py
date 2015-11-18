@@ -73,7 +73,7 @@ def addl_env_args(addl_env):
     return ['env'] + ['%s=%s' % pair for pair in addl_env.items()]
 
 
-def create_process(cmd, run_as_root=False, addl_env=None, shell=False):
+def create_process(cmd, run_as_root=False, addl_env=None):
     """Create a process object for the given command.
 
     The return value will be a tuple of the process object and the
@@ -83,7 +83,7 @@ def create_process(cmd, run_as_root=False, addl_env=None, shell=False):
     if run_as_root:
         cmd = shlex.split(config.get_root_helper(cfg.CONF)) + cmd
     LOG.debug("Running command: %s", cmd)
-    obj = utils.subprocess_popen(cmd, shell=shell,
+    obj = utils.subprocess_popen(cmd, shell=False,
                                  stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE)
@@ -105,7 +105,7 @@ def execute_rootwrap_daemon(cmd, process_input, addl_env):
 
 def execute(cmd, process_input=None, addl_env=None,
             check_exit_code=True, return_stderr=False, log_fail_as_error=True,
-            extra_ok_codes=None, run_as_root=False, shell=False):
+            extra_ok_codes=None, run_as_root=False):
     try:
         if (process_input is None or
             isinstance(process_input, six.binary_type)):
@@ -117,7 +117,7 @@ def execute(cmd, process_input=None, addl_env=None,
                 execute_rootwrap_daemon(cmd, process_input, addl_env))
         else:
             obj, cmd = create_process(cmd, run_as_root=run_as_root,
-                                      addl_env=addl_env, shell=shell)
+                                      addl_env=addl_env)
             _stdout, _stderr = obj.communicate(_process_input)
             returncode = obj.returncode
             obj.stdin.close()
