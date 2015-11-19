@@ -13,6 +13,8 @@
 #    under the License.
 
 import binascii
+import traceback
+
 import netaddr
 from oslo_log import log as logging
 from oslo_utils import excutils
@@ -135,53 +137,62 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         self.dist_fip_count = self.dist_fip_count + 1
 
         # Add routing rule to different subnets's fip
-        LOG.debug("DVR: add fipns subnets's rule, fip: %s", fip)
-        fip_port = self.agent.get_port_by_floatingip(floating_ip)
-        LOG.debug("DVR: add fipns subnets's rule, fip_port: %s", fip_port)
-        if fip_port:
-            fip_subnet_id = fip_port['fixed_ips'][0]['subnet_id']
-            ex_gw_port = self.get_ex_gw_port()
-            fip_agent_port = self.get_floating_agent_gw_interface(
-                ex_gw_port['network_id'])
-            if not fip_agent_port:
-                LOG.debug("No FloatingIP agent gateway port possibly due to "
-                          "late binding of the private port to the host, "
-                          "requesting agent gateway port for 'network-id' :"
-                          "%s", ex_gw_port['network_id'])
-                fip_agent_port = self.agent.plugin_rpc.get_agent_gateway_port(
-                    self.agent.context, ex_gw_port['network_id'])
-            if fip_agent_port:
-                ipd = ip_lib.IPDevice(interface_name, namespace=fip_ns_name)
-                gateway = ipd.route.get_gateway()
-                if gateway:
-                    gateway = gateway.get('gateway')
-                    fip_subnets = filter(lambda x: x['id'] == fip_subnet_id,
-                                         fip_agent_port['subnets'])
-                    if fip_subnets and len(fip_subnets) == 1:
-                        fip_gw_ip = fip_subnets[0].get('gateway_ip')
-                        if fip_gw_ip != gateway:
-                            table_id = self._touch_rule_table(RULE_TABLE_OP_ADD,
-                                                              fip_subnet_id)
-                            ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
-                            ip_rule.rule.add(ip=floating_ip,
-                                             table=table_id,
-                                             priority=rule_pr)
-                            fip_fg_name = self. \
-                                fip_ns.get_ext_device_name(fip_agent_port['id'])
-                            device = ip_lib.IPDevice(fip_fg_name,
-                                                     namespace=fip_ns_name)
-                            device.route.add_gateway(fip_gw_ip, table=table_id)
+        try:
+            LOG.debug("DVR: add fipns subnets's rule, fip: %s", fip)
+            fip_port = self.agent.get_port_by_floatingip(floating_ip)
+            LOG.debug("DVR: add fipns subnets's rule, fip_port: %s", fip_port)
+            if fip_port:
+                fip_subnet_id = fip_port['fixed_ips'][0]['subnet_id']
+                ex_gw_port = self.get_ex_gw_port()
+                fip_agent_port = self.get_floating_agent_gw_interface(
+                    ex_gw_port['network_id'])
+                if not fip_agent_port:
+                    LOG.debug(
+                        "No FloatingIP agent gateway port possibly due to "
+                        "late binding of the private port to the host, "
+                        "requesting agent gateway port for 'network-id' :"
+                        "%s", ex_gw_port['network_id'])
+                    fip_agent_port = self.agent.plugin_rpc. \
+                        get_agent_gateway_port(self.agent.context,
+                                               ex_gw_port['network_id'])
+                if fip_agent_port:
+                    ipd = ip_lib.IPDevice(interface_name, namespace=fip_ns_name)
+                    gateway = ipd.route.get_gateway()
+                    if gateway:
+                        gateway = gateway.get('gateway')
+                        fip_subnets = filter(lambda x: x['id'] == fip_subnet_id,
+                                             fip_agent_port['subnets'])
+                        if fip_subnets and len(fip_subnets) == 1:
+                            fip_gw_ip = fip_subnets[0].get('gateway_ip')
+                            if fip_gw_ip != gateway:
+                                table_id = self._touch_rule_table(
+                                    RULE_TABLE_OP_ADD,
+                                    fip_subnet_id)
+                                ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+                                ip_rule.rule.add(ip=floating_ip,
+                                                 table=table_id,
+                                                 priority=rule_pr)
+                                fip_fg_name = self. \
+                                    fip_ns.get_ext_device_name(
+                                    fip_agent_port['id'])
+                                device = ip_lib.IPDevice(fip_fg_name,
+                                                         namespace=fip_ns_name)
+                                device.route.add_gateway(fip_gw_ip,
+                                                         table=table_id)
+                        else:
+                            LOG.error('Fip_subnets found not single %s.',
+                                      fip_agent_port['subnets'])
                     else:
-                        LOG.error('Fip_subnets found not single %s.',
-                                  fip_agent_port['subnets'])
+                        LOG.error('Gateway not found from %s.', interface_name)
                 else:
-                    LOG.error('Gateway not found from %s.', interface_name)
+                    LOG.error(_LE("No FloatingIP agent gateway port "
+                                  "returned from server for 'network-id': %s"),
+                              ex_gw_port['network_id'])
             else:
-                LOG.error(_LE("No FloatingIP agent gateway port "
-                              "returned from server for 'network-id': %s"),
-                          ex_gw_port['network_id'])
-        else:
-            LOG.error('Fip %s port not found.', floating_ip)
+                LOG.error('Fip %s port not found.', floating_ip)
+        except Exception:
+            LOG.exception(traceback.format_exc())
+            raise
 
     def floating_ip_removed_dist(self, fip_cidr):
         """Remove floating IP from FIP namespace."""
@@ -201,49 +212,56 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                 table=dvr_fip_ns.FIP_RT_TBL,
                                 priority=rule_pr)
             # del fip rule and rule table
-            LOG.debug("DVR: del fipns subnets's rule, fip_cidr: %s", fip_cidr)
-            fip_port = self.agent.get_port_by_floatingip(floating_ip)
-            LOG.debug("DVR: del fipns subnets's rule, fip_port: %s", fip_port)
-            if fip_port:
-                subnet_id = fip_port['fixed_ips'][0]['subnet_id']
-                table_id = self._touch_rule_table(RULE_TABLE_OP_GET, subnet_id)
-                if table_id:
-                    rule_pr = self.floating_ips_dict[floating_ip]
-                    ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
-                    ip_rule.rule.delete(ip=floating_ip,
-                                        table=table_id,
-                                        priority=rule_pr)
-                ex_gw_port = self.get_ex_gw_port()
-                fip_agent_port = self.get_floating_agent_gw_interface(
-                    ex_gw_port['network_id'])
-                if not fip_agent_port:
-                    LOG.debug(
-                        "No FloatingIP agent gateway port possibly due to "
-                        "late binding of the private port to the host, "
-                        "requesting agent gateway port for 'network-id' :"
-                        "%s", ex_gw_port['network_id'])
-                    fip_agent_port = self.agent. \
-                        plugin_rpc. \
-                        get_agent_gateway_port(self.agent.context,
-                                               ex_gw_port['network_id'])
-                if fip_agent_port:
-                    subnets = [subnet['id'] for subnet in
-                               fip_agent_port['subnets']]
-                    LOG.debug('Subnets: %s, rule_table_keys: %s',
-                              subnets,
-                              self.rule_table.keys())
-                    for v in self.rule_table.keys():
-                        if v not in subnets:
-                            self._touch_rule_table(RULE_TABLE_OP_DEL, v)
+            try:
+                LOG.debug("DVR: del fipns subnets's rule, fip_cidr: %s",
+                          fip_cidr)
+                fip_port = self.agent.get_port_by_floatingip(floating_ip)
+                LOG.debug("DVR: del fipns subnets's rule, fip_port: %s",
+                          fip_port)
+                if fip_port:
+                    subnet_id = fip_port['fixed_ips'][0]['subnet_id']
+                    table_id = self._touch_rule_table(RULE_TABLE_OP_GET,
+                                                      subnet_id)
+                    if table_id:
+                        rule_pr = self.floating_ips_dict[floating_ip]
+                        ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+                        ip_rule.rule.delete(ip=floating_ip,
+                                            table=table_id,
+                                            priority=rule_pr)
+                    ex_gw_port = self.get_ex_gw_port()
+                    fip_agent_port = self.get_floating_agent_gw_interface(
+                        ex_gw_port['network_id'])
+                    if not fip_agent_port:
+                        LOG.debug(
+                            "No FloatingIP agent gateway port possibly due to "
+                            "late binding of the private port to the host, "
+                            "requesting agent gateway port for 'network-id' :"
+                            "%s", ex_gw_port['network_id'])
+                        fip_agent_port = self.agent. \
+                            plugin_rpc. \
+                            get_agent_gateway_port(self.agent.context,
+                                                   ex_gw_port['network_id'])
+                    if fip_agent_port:
+                        subnets = [subnet['id'] for subnet in
+                                   fip_agent_port['subnets']]
+                        LOG.debug('Subnets: %s, rule_table_keys: %s',
+                                  subnets,
+                                  self.rule_table.keys())
+                        for v in self.rule_table.keys():
+                            if v not in subnets:
+                                self._touch_rule_table(RULE_TABLE_OP_DEL, v)
+                    else:
+                        LOG.error(_LE("No FloatingIP agent gateway port "
+                                      "returned from server for 'network-id': "
+                                      "%s"), ex_gw_port['network_id'])
+                        # TODO(nanzhang): Need to del rule table if none subnet
+                        # use it? Seemingly it doesn't, when rule add and lookup
+                        # some table, the table's gateway will be replaced
                 else:
-                    LOG.error(_LE("No FloatingIP agent gateway port "
-                                  "returned from server for 'network-id': "
-                                  "%s"), ex_gw_port['network_id'])
-                    # TODO(nanzhang): Need to del rule table if none subnet
-                    # use it? Seemingly it doesn't, when rule add and lookup
-                    # some table, the table's gateway will be replaced
-            else:
-                LOG.error('Fip %s port not found.', floating_ip)
+                    LOG.error('Fip %s port not found.', floating_ip)
+            except Exception:
+                LOG.exception(traceback.format_exc())
+                raise
 
             self.fip_ns.deallocate_rule_priority(floating_ip)
             # TODO(rajeev): Handle else case - exception/log?
