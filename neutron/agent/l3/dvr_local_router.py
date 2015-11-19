@@ -191,7 +191,8 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             else:
                 LOG.error('Fip %s port not found.', floating_ip)
         except Exception:
-            LOG.exception(traceback.format_exc())
+            LOG.exception("floating_ip_added_dist error %s",
+                          traceback.format_exc())
             raise
 
     def floating_ip_removed_dist(self, fip_cidr):
@@ -260,7 +261,8 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 else:
                     LOG.error('Fip %s port not found.', floating_ip)
             except Exception:
-                LOG.exception(traceback.format_exc())
+                LOG.exception("floating_ip_removed_dist error %s",
+                              traceback.format_exc())
                 raise
 
             self.fip_ns.deallocate_rule_priority(floating_ip)
