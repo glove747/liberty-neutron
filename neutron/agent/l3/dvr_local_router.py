@@ -212,7 +212,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                    fip_agent_port['subnets']]
                         LOG.debug('Subnets: %s, rule_table_keys: %s',
                                   subnets,
-                                  self.rule_table.keys())
+                                  self.fip_ns.rule_table_keys())
                         rule_table_keys = self.fip_ns.rule_table_keys()
                         for subnet_id in rule_table_keys:
                             if subnet_id not in subnets:
