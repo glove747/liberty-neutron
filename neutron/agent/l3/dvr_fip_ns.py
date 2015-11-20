@@ -57,6 +57,10 @@ class FipNamespace(namespaces.Namespace):
         self._rule_priorities = frpa.FipRulePriorityAllocator(path,
                                                               FIP_PR_START,
                                                               FIP_PR_END)
+        path = os.path.join(agent_conf.state_path, 'fip-rule-tables')
+        self._rule_tables = frpa.FipRuleTableAllocator(path,
+                                                          FIP_SUBNET_RT_START,
+                                                          FIP_SUBNET_RT_END)
         self._iptables_manager = iptables_manager.IptablesManager(
             namespace=self.get_name(),
             use_ipv6=self.use_ipv6)
@@ -97,6 +101,15 @@ class FipNamespace(namespaces.Namespace):
 
     def deallocate_rule_priority(self, floating_ip):
         self._rule_priorities.release(floating_ip)
+
+    def rule_table_allocate(self, subnet_id):
+        return self._rule_tables.allocate(subnet_id)
+
+    def rule_table_deallocate(self, subnet_id):
+        self._rule_tables.release(subnet_id)
+
+    def rule_table_keys(self):
+        return self._rule_tables.keys()
 
     def _gateway_added(self, ex_gw_port, interface_name):
         """Add Floating IP gateway port."""

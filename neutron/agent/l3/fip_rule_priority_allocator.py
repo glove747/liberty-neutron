@@ -50,4 +50,46 @@ class FipRulePriorityAllocator(ItemAllocator):
 
         super(FipRulePriorityAllocator, self).__init__(data_store_path,
                                                        FipPriority,
-                                                       pool)
+                                                      pool)
+
+
+class RuleTable(object):
+    def __init__(self, index):
+        self.index = index
+
+    def __repr__(self):
+        return str(self.index)
+
+    def __hash__(self):
+        return hash(self.__repr__())
+
+    def __eq__(self, other):
+        if isinstance(other, RuleTable):
+            return self.index == other.index
+        else:
+            return False
+
+
+class FipRuleTableAllocator(ItemAllocator):
+    """Manages allocation of floating ips rule tables.
+        IP rule table assigned to DVR floating IPs need
+        to be preserved over L3 agent restarts.
+        This class provides an allocator which saves the tables
+        to a datastore which will survive L3 agent restarts.
+    """
+
+    def __init__(self, data_store_path, priority_rule_start,
+                 priority_rule_end):
+        """Create the necessary pool and create the item allocator
+            using ',' as the delimiter and FipRulePriorityAllocator as the
+            class type
+        """
+        pool = set(RuleTable(str(s)) for s in range(priority_rule_start,
+                                                    priority_rule_end))
+
+        super(FipRuleTableAllocator, self).__init__(data_store_path,
+                                                    RuleTable,
+                                                    pool)
+
+    def keys(self):
+        return self.allocations.keys()

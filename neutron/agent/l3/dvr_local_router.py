@@ -30,9 +30,6 @@ from neutron.i18n import _LE
 LOG = logging.getLogger(__name__)
 # xor-folding mask used for IPv6 rule index
 MASK_30 = 0x3fffffff
-RULE_TABLE_OP_GET = 'GET'
-RULE_TABLE_OP_ADD = 'ADD'
-RULE_TABLE_OP_DEL = 'DEL'
 
 
 class DvrLocalRouter(dvr_router_base.DvrRouterBase):
@@ -44,47 +41,11 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         self.rtr_fip_subnet = None
         self.dist_fip_count = None
         self.fip_ns = None
-        # add: rule_table[subnet_id] = 50~200
-        # get: rule_table[subnet_id]
-        # del: del rule_table[subnet_id]
-        self.rule_table = {}
 
     def get_floating_ips(self):
         """Filter Floating IPs to be hosted on this agent."""
         floating_ips = super(DvrLocalRouter, self).get_floating_ips()
         return [i for i in floating_ips if i['host'] == self.host]
-
-    def _touch_rule_table(self, operation, subnet_id):
-        if operation == RULE_TABLE_OP_GET:
-            if self.rule_table.has_key(subnet_id):
-                table_id = self.rule_table[subnet_id]
-                LOG.debug("table_id %s:%s geted", subnet_id, table_id)
-                return table_id
-            else:
-                LOG.debug("Table not found by key: %s", subnet_id)
-                return None
-        elif operation == RULE_TABLE_OP_ADD:
-            if self.rule_table.has_key(subnet_id):
-                table_id = self.rule_table[subnet_id]
-                LOG.debug("table_id %s:%s geted", subnet_id, table_id)
-                return table_id
-            else:
-                table_id = dvr_fip_ns.FIP_SUBNET_RT_START
-                if len(self.rule_table) > 0:
-                    while table_id in self.rule_table.values():
-                        table_id += 1
-                if table_id > dvr_fip_ns.FIP_SUBNET_RT_END:
-                    err_msg = "Too many subnet %s:%s" % (subnet_id, table_id)
-                    LOG.error(err_msg)
-                    raise exceptions.FloatingIpSetupException(
-                        'L3 agent failure to setup rule tables, %s', err_msg)
-                self.rule_table[subnet_id] = table_id
-                LOG.debug("table_id %s:%s added", subnet_id, table_id)
-                return table_id
-        elif operation == RULE_TABLE_OP_DEL:
-            LOG.debug("table_id %s:%s deled",
-                      subnet_id, self.rule_table[subnet_id])
-            del self.rule_table[subnet_id]
 
     def _handle_fip_nat_rules(self, interface_name):
         """Configures NAT rules for Floating IPs for DVR.
@@ -165,20 +126,18 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                         if fip_subnets and len(fip_subnets) == 1:
                             fip_gw_ip = fip_subnets[0].get('gateway_ip')
                             if fip_gw_ip != gateway:
-                                table_id = self._touch_rule_table(
-                                    RULE_TABLE_OP_ADD,
-                                    fip_subnet_id)
+                                rule_table = self.fip_ns.rule_table_allocate\
+                                    (fip_subnet_id)
                                 ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
                                 ip_rule.rule.add(ip=floating_ip,
-                                                 table=table_id,
+                                                 table=rule_table,
                                                  priority=rule_pr)
-                                fip_fg_name = self. \
-                                    fip_ns.get_ext_device_name(
-                                    fip_agent_port['id'])
+                                fip_fg_name = self.fip_ns.get_ext_device_name \
+                                    (fip_agent_port['id'])
                                 device = ip_lib.IPDevice(fip_fg_name,
                                                          namespace=fip_ns_name)
                                 device.route.add_gateway(fip_gw_ip,
-                                                         table=table_id)
+                                                         table=rule_table)
                         else:
                             LOG.error('Fip_subnets found not single %s.',
                                       fip_agent_port['subnets'])
@@ -221,15 +180,20 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 LOG.debug("DVR: del fipns subnets's rule, fip_port: %s",
                           fip_port)
                 if fip_port:
-                    subnet_id = fip_port['fixed_ips'][0]['subnet_id']
-                    table_id = self._touch_rule_table(RULE_TABLE_OP_GET,
-                                                      subnet_id)
-                    if table_id:
+                    from neutron.agent.linux.ip_lib import \
+                                    get_ip_version
+                    ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+                    rules = ip_rule.rule.\
+                        list_rules(get_ip_version(floating_ip))
+                    LOG.debug("DVR: rules: %s", rules)
+                    to_delete_rules = filter(lambda x: x['from'] == floating_ip,
+                                             rules)
+                    if len(to_delete_rules) > 0:
                         rule_pr = self.floating_ips_dict[floating_ip]
-                        ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
                         ip_rule.rule.delete(ip=floating_ip,
-                                            table=table_id,
+                                            table=to_delete_rules[0]['table'],
                                             priority=rule_pr)
+
                     ex_gw_port = self.get_ex_gw_port()
                     fip_agent_port = self.get_floating_agent_gw_interface(
                         ex_gw_port['network_id'])
@@ -249,9 +213,10 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                         LOG.debug('Subnets: %s, rule_table_keys: %s',
                                   subnets,
                                   self.rule_table.keys())
-                        for v in self.rule_table.keys():
-                            if v not in subnets:
-                                self._touch_rule_table(RULE_TABLE_OP_DEL, v)
+                        rule_table_keys = self.fip_ns.rule_table_keys()
+                        for subnet_id in rule_table_keys:
+                            if subnet_id not in subnets:
+                                self.fip_ns.rule_table_deallocate(subnet_id)
                     else:
                         LOG.error(_LE("No FloatingIP agent gateway port "
                                       "returned from server for 'network-id': "
@@ -537,6 +502,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         ex_gw_port = self.get_ex_gw_port()
         if ex_gw_port:
             self.create_dvr_fip_interfaces(ex_gw_port)
+
         super(DvrLocalRouter, self).process_external(agent)
 
     def create_dvr_fip_interfaces(self, ex_gw_port):
