@@ -66,4 +66,8 @@ def upgrade():
                   sa.ForeignKey('qos_policies.id', ondelete='CASCADE'),
                   nullable=False, unique=True),
         sa.Column('max_kbps', sa.Integer()),
-        sa.Column('max_burst_kbps', sa.Integer()))
+        sa.Column('max_burst_kbps', sa.Integer()),
+        sa.Column('ingress_max_kbps', sa.Integer()),
+        sa.Column('ingress_max_burst_kbps', sa.Integer()),
+        sa.Column('egress_max_kbps', sa.Integer()),
+        sa.Column('egress_max_burst_kbps', sa.Integer()))
