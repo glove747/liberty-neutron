@@ -1235,14 +1235,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         # at certain times, we just pass the port-context and return it, so
         # that we don't disturb other methods that are expecting a return
         # value.
-        if updated_port['device_owner'] not in \
-                [const.DEVICE_OWNER_AGENT_GW_SHARED]:
-            bound_context = self._bind_port_if_needed(
-                mech_context,
-                allow_notify=True,
-                need_notify=need_port_update_notify)
-            return bound_context.current
-        return updated_port
+        bound_context = self._bind_port_if_needed(
+            mech_context,
+            allow_notify=True,
+            need_notify=need_port_update_notify)
+        return bound_context.current
 
     def _process_dvr_port_binding(self, mech_context, context, attrs):
         session = mech_context._plugin_context.session
