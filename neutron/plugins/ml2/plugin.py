@@ -449,11 +449,14 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
     def _update_port_dict_binding(self, port, binding):
         port[portbindings.VNIC_TYPE] = binding.vnic_type
         port[portbindings.PROFILE] = self._get_profile(binding)
-        if port['device_owner'] in [const.DEVICE_OWNER_DVR_INTERFACE,
-                                    const.DEVICE_OWNER_AGENT_GW_SHARED]:
+        if port['device_owner'] == const.DEVICE_OWNER_DVR_INTERFACE:
             port[portbindings.HOST_ID] = ''
             port[portbindings.VIF_TYPE] = portbindings.VIF_TYPE_DISTRIBUTED
             port[portbindings.VIF_DETAILS] = {}
+        elif port['device_owner'] == const.DEVICE_OWNER_AGENT_GW_SHARED:
+            port[portbindings.HOST_ID] = ''
+            port[portbindings.VIF_TYPE] = binding.vif_type
+            port[portbindings.VIF_DETAILS] = self._get_vif_details(binding)
         else:
             port[portbindings.HOST_ID] = binding.host
             port[portbindings.VIF_TYPE] = binding.vif_type
