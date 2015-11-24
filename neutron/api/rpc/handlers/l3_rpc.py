@@ -84,12 +84,15 @@ class L3RpcCallback(object):
             routers = (
                 self.l3plugin.list_active_sync_routers_on_active_l3_agent(
                     context, host, router_ids))
-            shared_routers = self.l3plugin.\
-                list_dvr_routers_by_owner(context,
-                                         constants.DEVICE_OWNER_AGENT_GW_SHARED)
-            if shared_routers:
-                if routers:
-                    routers = routers + shared_routers
+            shared_ports = self.l3plugin.\
+                list_ports_by_owner(context,
+                                    constants.DEVICE_OWNER_AGENT_GW_SHARED)
+            if shared_ports:
+                for router in routers or []:
+                    router[constants.FLOATINGIP_AGENT_INTF_KEY] = \
+                        router[constants.FLOATINGIP_AGENT_INTF_KEY] + \
+                        shared_ports
+
         else:
             routers = self.l3plugin.get_sync_data(context, router_ids)
         if utils.is_extension_supported(
