@@ -506,7 +506,8 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 self.agent.context, ex_gw_port['network_id'])
             if fip_agent_port:
                 new_subnet_count = len(fip_agent_port['subnets'])
-                old_subnet_count = len(self.agent_gateway_port['subnets'])
+                old_subnet_count = \
+                    len(self.fip_ns.agent_gateway_port['subnets'])
                 LOG.debug("FloatingIP agent gateway port new_subnet_count: %s"
                           " old_subnet_count: %s", new_subnet_count
                           , old_subnet_count)
