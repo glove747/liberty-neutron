@@ -115,6 +115,19 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                         context, [router_id], None, payload)
                     LOG.debug('DVR: dvr_update_router_addvm %s ', router_id)
 
+    def dvr_update_floatingip_agent_gateway_shared(self, context):
+        LOG.debug('DVR: dvr_update_floatingip_agent_gateway_shared')
+        active_l3_agents = self.get_l3_agents(context, active=True)
+        if not active_l3_agents:
+            LOG.warn(_LW('No active L3 agents found for SNAT'))
+            return
+        for l3_agent in active_l3_agents:
+            self.l3_rpc_notifier.agent_updated(context,
+                                               l3_agent.admin_state_up,
+                                               l3_agent.host)
+            LOG.debug('DVR: dvr_update_floatingip_agent_gateway_shared'
+                      ' l3_agent: %s ', l3_agent)
+
     def get_dvr_routers_by_portid(self, context, port_id):
         """Gets the dvr routers on vmport subnets."""
         router_ids = set()
@@ -509,14 +522,13 @@ def _notify_port_delete(event, resource, trigger, **kwargs):
 def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
     new_port = kwargs.get('port')
     original_port = kwargs.get('original_port')
-
+    l3plugin = manager.NeutronManager.get_service_plugins().get(
+                    service_constants.L3_ROUTER_NAT)
+    context = kwargs['context']
     if new_port and original_port:
         original_device_owner = original_port.get('device_owner', '')
         if (original_device_owner.startswith('compute') and
             not new_port.get('device_owner')):
-            l3plugin = manager.NeutronManager.get_service_plugins().get(
-                service_constants.L3_ROUTER_NAT)
-            context = kwargs['context']
             removed_routers = l3plugin.dvr_deletens_if_no_port(
                 context,
                 original_port['id'],
@@ -530,8 +542,12 @@ def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
                 _notify_port_delete(
                     event, resource, trigger, **removed_router_args)
             return
-
-    _notify_l3_agent_new_port(resource, event, trigger, **kwargs)
+    if original_port and not new_port:
+        if original_port.get('device_owner', '') == \
+                n_const.DEVICE_OWNER_AGENT_GW_SHARED:
+            l3plugin.dvr_update_floatingip_agent_gateway_shared(context)
+    else:
+        _notify_l3_agent_new_port(resource, event, trigger, **kwargs)
 
 
 def subscribe():
