@@ -84,6 +84,12 @@ class L3RpcCallback(object):
             routers = (
                 self.l3plugin.list_active_sync_routers_on_active_l3_agent(
                     context, host, router_ids))
+            shared_routers = self.l3plugin.\
+                list_dvr_routers_by_owner(context,
+                                         constants.DEVICE_OWNER_AGENT_GW_SHARED)
+            if shared_routers:
+                if routers:
+                    routers = routers + shared_routers
         else:
             routers = self.l3plugin.get_sync_data(context, router_ids)
         if utils.is_extension_supported(
@@ -92,6 +98,7 @@ class L3RpcCallback(object):
         LOG.debug("Routers returned to l3 agent:\n %s",
                   utils.DelayedStringRenderer(jsonutils.dumps,
                                               routers, indent=5))
+
         return routers
 
     def _ensure_host_set_on_ports(self, context, host, routers):
