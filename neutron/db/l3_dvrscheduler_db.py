@@ -144,10 +144,11 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                 router_ids.add(subnet_port['device_id'])
         return router_ids
 
-    def list_dvr_routers_by_owner(self, context, owner):
-        """Gets the dvr routers by device_owner."""
-        router_ids = self.get_routers(context, filters={'device_owner': owner})
-        return router_ids
+    def list_ports_by_owner(self, context, owner):
+        """Gets the dvr ports by device_owner."""
+        ports = self._core_plugin.get_ports(context,
+                                            filters={'device_owner': owner})
+        return ports
 
     def get_subnet_ids_on_router(self, context, router_id):
         """Return subnet IDs for interfaces attached to the given router."""
