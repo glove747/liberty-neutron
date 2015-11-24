@@ -453,6 +453,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             port[portbindings.HOST_ID] = ''
             port[portbindings.VIF_TYPE] = portbindings.VIF_TYPE_DISTRIBUTED
             port[portbindings.VIF_DETAILS] = {}
+        elif port['device_owner'] == const.DEVICE_OWNER_AGENT_GW_SHARED:
+            port[portbindings.HOST_ID] = ''
+            port[portbindings.VIF_TYPE] = binding.vif_type
+            port[portbindings.VIF_DETAILS] = self._get_vif_details(binding)
         else:
             port[portbindings.HOST_ID] = binding.host
             port[portbindings.VIF_TYPE] = binding.vif_type

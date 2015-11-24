@@ -269,7 +269,9 @@ class L3RpcCallback(object):
         admin_ctx = neutron_context.get_admin_context()
         agent_port = self.l3plugin.create_fip_agent_gw_port_if_not_exists(
             admin_ctx, network_id, host)
-        self._ensure_host_set_on_port(admin_ctx, host, agent_port)
+        if agent_port['device_owner'] not in \
+                [constants.DEVICE_OWNER_AGENT_GW_SHARED]:
+            self._ensure_host_set_on_port(admin_ctx, host, agent_port)
         LOG.debug('Agent Gateway port returned : %(agent_port)s with '
                   'host %(host)s', {'agent_port': agent_port,
                   'host': host})
