@@ -131,11 +131,12 @@ class L3RpcCallback(object):
     def _ensure_host_set_on_port(self, context, host, port, router_id=None,
                                  ha_router_port=False):
         if (port and host is not None and
-            (port.get('device_owner') !=
-             constants.DEVICE_OWNER_DVR_INTERFACE and
-             port.get(portbindings.HOST_ID) != host or
-             port.get(portbindings.VIF_TYPE) ==
-             portbindings.VIF_TYPE_BINDING_FAILED)):
+                (port.get('device_owner') not in [
+                    constants.DEVICE_OWNER_DVR_INTERFACE,
+                    constants.DEVICE_OWNER_AGENT_GW_SHARED] and
+                         port.get(portbindings.HOST_ID) != host or
+                         port.get(portbindings.VIF_TYPE) ==
+                         portbindings.VIF_TYPE_BINDING_FAILED)):
 
             # Ports owned by non-HA routers are bound again if they're
             # already bound but the router moved to another host.

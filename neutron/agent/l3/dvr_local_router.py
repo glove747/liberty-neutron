@@ -575,14 +575,16 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             fip_agent_port = self.agent.plugin_rpc.get_agent_gateway_port(
                 self.agent.context, ex_gw_port['network_id'])
             if fip_agent_port:
-                new_subnet_count = len(fip_agent_port['subnets'])
-                old_subnet_count = \
-                    len(self.fip_ns.agent_gateway_port['subnets'])
-                LOG.debug("FloatingIP agent gateway port new_subnet_count: %s"
-                          " old_subnet_count: %s", new_subnet_count
-                          , old_subnet_count)
-                if new_subnet_count != old_subnet_count:
-                    self.fip_ns.update_gateway_port(fip_agent_port)
+                if self.fip_ns.agent_gateway_port:
+                    new_subnet_count = len(fip_agent_port['subnets'])
+                    old_subnet_count = \
+                        len(self.fip_ns.agent_gateway_port['subnets'])
+                    LOG.debug("FloatingIP agent gateway port "
+                              " new_subnet_count: %s"
+                              " old_subnet_count: %s", new_subnet_count
+                              , old_subnet_count)
+                    if new_subnet_count != old_subnet_count:
+                        self.fip_ns.update_gateway_port(fip_agent_port)
 
         super(DvrLocalRouter, self).process_external(agent)
 
