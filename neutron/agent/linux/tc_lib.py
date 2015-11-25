@@ -154,11 +154,13 @@ class TcCommand(TcCommandBase):
             last_line = line
         return prios
 
-    def add_ingress(self, dev, ip, rate, burst):
+    def add_ingress(self, dev, ip, rate_kbps, burst_kbps):
         # command example:
         # tc filter add dev em1 parent ffff: \
         # protocol all u32 match ip dst 172.27.35.221 \
-        # police rate 40Mbit burst 40Mbit mtu 64kb drop flowid :1
+        # police rate 8192kbit burst 1024k mtu 64kb drop flowid :1
+        rate = str(rate_kbps * 8) + 'kbit'
+        burst = str(burst_kbps) + 'k'
         args = ['filter', 'add', 'dev', dev]
         args += ['parent', 'ffff:', 'protocol', 'all', 'u32']
         args += ['match', 'ip', 'dst', ip]
@@ -187,11 +189,13 @@ class TcCommand(TcCommandBase):
             last_line = line
         return prios
 
-    def add_egress(self, dev, ip, rate, burst):
+    def add_egress(self, dev, ip, rate_kbps, burst_kbps):
         # command example:
         # tc filter add dev em1 parent 1:0 \
         # protocol all u32 match ip src 172.27.35.221 \
-        # police rate 80Mbit burst 80Mbit mtu 64kb drop flowid :1
+        # police rate 8192kbit burst 1024k mtu 64kb drop flowid :1
+        rate = str(rate_kbps * 8) + 'kbit'
+        burst = str(burst_kbps) + 'k'
         args = ['filter', 'add', 'dev', dev]
         args += ['parent', '1:0', 'protocol', 'all', 'u32']
         args += ['match', 'ip', 'src', ip]
@@ -205,7 +209,7 @@ class TcCommand(TcCommandBase):
         args = ['filter', 'del', 'dev', dev, 'prio', prio]
         self._as_root([], args, use_root_namespace=True)
 
-    def add_qos(self, ip_or_cidr, dev, meta):
+    def add_qos(self, ip_or_cidr, dev, rule):
         if not self.has_root_ingress(dev):
             self.add_root_ingress(dev)
 
@@ -217,9 +221,9 @@ class TcCommand(TcCommandBase):
 
         # add ingress
         ip = cidr_to_ip(ip_or_cidr)
-        rate = meta['ingress']['rate']
-        burst = meta['ingress']['burst']
-        self.add_ingress(dev, ip, rate, burst)
+        rate_kbps = rule.get('ingress_max_kbps')
+        burst_kbps = rule.get('ingress_max_burst_kbps')
+        self.add_ingress(dev, ip, rate_kbps, burst_kbps)
 
         if not self.has_root_egress(dev):
             self.add_root_egress(dev)
@@ -230,9 +234,9 @@ class TcCommand(TcCommandBase):
             self.remove_egress(dev, prio)
 
         # add egress
-        rate = meta['egress']['rate']
-        burst = meta['egress']['burst']
-        self.add_egress(dev, ip, rate, burst)
+        rate_kbps = rule.get('egress_max_kbps')
+        burst_kbps = rule.get('egress_max_burst_kbps')
+        self.add_egress(dev, ip, rate_kbps, burst_kbps)
 
     def remove_qos(self, ip_or_cidr, dev):
         keyword = ip_to_hex(ip_or_cidr)
