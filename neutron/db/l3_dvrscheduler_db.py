@@ -541,11 +541,15 @@ def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
                 }
                 _notify_port_delete(
                     event, resource, trigger, **removed_router_args)
-            return
-    if original_port and not new_port:
-        if original_port.get('device_owner', '') == \
-                n_const.DEVICE_OWNER_AGENT_GW_SHARED:
+    elif not new_port and original_port:
+        original_device_owner = original_port.get('device_owner', '')
+        if original_device_owner == n_const.DEVICE_OWNER_AGENT_GW_SHARED:
             l3plugin.dvr_update_floatingip_agent_gateway_shared(context)
+        elif original_device_owner == n_const.DEVICE_OWNER_FLOATINGIP:
+            fip_id = original_port.get('device_id', '')
+            floatingip = l3plugin.get_floatingip(context, fip_id)
+            router_id = floatingip['router_id']
+            l3plugin.notify_router_updated(context, router_id, 'port_update')
     else:
         _notify_l3_agent_new_port(resource, event, trigger, **kwargs)
 

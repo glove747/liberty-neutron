@@ -28,6 +28,7 @@ from neutron.common import constants as l3_constants
 from neutron.common import exceptions
 from neutron.common import utils as common_utils
 from neutron.i18n import _LE
+from neutron.services.qos import qos_consts
 
 LOG = logging.getLogger(__name__)
 # xor-folding mask used for IPv6 rule index
@@ -272,6 +273,58 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 self.fip_ns.delete()
                 self.fip_ns = None
 
+    def _get_qos_rule(self, fip):
+        try:
+            # get port
+            fip_cidr = common_utils.ip_to_cidr(fip['floating_ip_address'])
+            floating_ip = fip_cidr.split('/')[0]
+            fip_port = self.agent.get_port_by_floatingip(floating_ip)
+            if not fip_port:
+                LOG.warning("Floating ip does not exist.")
+                return {}
+            # get policy and rule
+            qos_policy_id = fip_port.get(qos_consts.QOS_POLICY_ID)
+            qos_policy = self.agent.get_policy_by_id(qos_policy_id) if \
+                qos_policy_id else None
+            qos_rules = qos_policy.get('rules') if \
+                qos_policy and qos_policy.get('rules') else []
+            qos_rules = [rule for rule in qos_rules if rule.get('type') ==
+                         qos_consts.RULE_TYPE_BANDWIDTH_LIMIT]
+            qos_rule = qos_rules[0] if qos_rules else {}
+            return qos_rule
+        except Exception, err:
+            LOG.warning("Getting qos rule error: %s", err)
+            return {}
+
+    def _process_qos_rule(self, qos_rule):
+        ingress_max_kbps = self.agent_conf.fip_qos_ingress_max_kbps
+        ingress_max_burst_kbps = self.agent_conf.fip_qos_ingress_max_burst_kbps
+        egress_max_kbps = self.agent_conf.fip_qos_egress_max_kbps
+        egress_max_burst_kbps = self.agent_conf.fip_qos_egress_max_burst_kbps
+        if not qos_rule:
+            # set default value
+            qos_rule = {
+                'ingress_max_kbps': ingress_max_kbps,
+                'ingress_max_burst_kbps': ingress_max_burst_kbps,
+                'egress_max_kbps': egress_max_kbps,
+                'egress_max_burst_kbps': egress_max_burst_kbps
+            }
+        else:
+            # check and set value
+            max_kbps = qos_rule.get('max_kbps')
+            max_burst_kbps = qos_rule.get('max_burst_kbps')
+            if not qos_rule.get('ingress_max_kbps'):
+                qos_rule['ingress_max_kbps'] = max_kbps or ingress_max_kbps
+            if not qos_rule.get('ingress_max_burst_kbps'):
+                qos_rule['ingress_max_burst_kbps'] = \
+                    max_burst_kbps or ingress_max_burst_kbps
+            if not qos_rule.get('egress_max_kbps'):
+                qos_rule['egress_max_kbps'] = max_kbps or egress_max_kbps
+            if not qos_rule.get('egress_max_burst_kbps'):
+                qos_rule['egress_max_burst_kbps'] = \
+                    max_burst_kbps or egress_max_burst_kbps
+        return qos_rule
+
     def _get_metadata(self, fip):
         try:
             port = self.agent.get_port_by_id(fip['port_id'])
@@ -321,12 +374,14 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
 
     def floating_ip_added_qos(self, fip):
         try:
-            metadata = self._get_metadata(fip)
-            metadata = self._process_metadata(metadata)
+            #metadata = self._get_metadata(fip)
+            #metadata = self._process_metadata(metadata)
+            qos_rule = self._get_qos_rule(fip)
+            qos_rule = self._process_qos_rule(qos_rule)
             ip_cidr = common_utils.ip_to_cidr(fip['floating_ip_address'])
             device = self.agent_conf.external_network_interface
             tc_wrapper = tc_lib.TcWrapper()
-            tc_wrapper.tc.add_qos(ip_cidr, device, metadata)
+            tc_wrapper.tc.add_qos(ip_cidr, device, qos_rule)
         except Exception, err:
             LOG.warning("Adding floating ip qos error: %s", err)
 
@@ -337,6 +392,9 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             tc_wrapper.tc.remove_qos(fip_cidr, device)
         except Exception, err:
             LOG.warning("Removing Floating ip qos error: %s", err)
+
+    def update_floating_ip(self, fip):
+        self.floating_ip_added_qos(fip)
 
     def add_floating_ip(self, fip, interface_name, device):
         if not self._add_fip_addr_to_device(fip, device):

@@ -82,7 +82,11 @@ class QosBandwidthLimitRule(QosRule):
 
     fields = {
         'max_kbps': obj_fields.IntegerField(nullable=True),
-        'max_burst_kbps': obj_fields.IntegerField(nullable=True)
+        'max_burst_kbps': obj_fields.IntegerField(nullable=True),
+        'ingress_max_kbps': obj_fields.IntegerField(nullable=True),
+        'ingress_max_burst_kbps': obj_fields.IntegerField(nullable=True),
+        'egress_max_kbps': obj_fields.IntegerField(nullable=True),
+        'egress_max_burst_kbps': obj_fields.IntegerField(nullable=True)
     }
 
     rule_type = qos_consts.RULE_TYPE_BANDWIDTH_LIMIT

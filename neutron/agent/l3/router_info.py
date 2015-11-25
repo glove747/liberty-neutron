@@ -197,6 +197,9 @@ class RouterInfo(object):
             LOG.warn(_LW("Unable to configure IP address for "
                          "floating IP: %s"), fip['id'])
 
+    def update_floating_ip(self, fip):
+        raise NotImplementedError()
+
     def add_floating_ip(self, fip, interface_name, device):
         raise NotImplementedError()
 
@@ -243,6 +246,8 @@ class RouterInfo(object):
                 # mark the status as not changed. we can't remove it because
                 # that's how the caller determines that it was removed
                 fip_statuses[fip['id']] = FLOATINGIP_STATUS_NOCHANGE
+            LOG.debug("Updating floating ip %s for qos info.", ip_cidr)
+            self.update_floating_ip(fip)
         fips_to_remove = (
             ip_cidr for ip_cidr in existing_cidrs - new_cidrs
             if common_utils.is_cidr_host(ip_cidr))
