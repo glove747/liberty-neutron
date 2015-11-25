@@ -129,7 +129,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                         if fip_subnets and len(fip_subnets) == 1:
                             fip_gw_ip = fip_subnets[0].get('gateway_ip')
                             if fip_gw_ip != gateway:
-                                rule_table = self.fip_ns.rule_table_allocate\
+                                rule_table = self.fip_ns.rule_table_allocate \
                                     (fip_subnet_id)
                                 ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
                                 ip_rule.rule.add(ip=floating_ip,
@@ -142,8 +142,9 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                 device.route.add_gateway(fip_gw_ip,
                                                          table=rule_table)
                         else:
-                            LOG.error('Fip_subnets found not single %s.',
-                                      fip_agent_port['subnets'])
+                            LOG.error('Fip_subnets found not single '
+                                      'fip_agent_port: %s, fip_subnet_id: %s.',
+                                      fip_agent_port['subnets'], fip_subnet_id)
                     else:
                         LOG.error('Gateway not found from %s.', interface_name)
                 else:
