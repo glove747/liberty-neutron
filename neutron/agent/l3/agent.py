@@ -122,7 +122,7 @@ class L3PluginApi(object):
         cctxt = self.client.prepare(version='1.2')
         return cctxt.call(context, 'get_port_by_id', host=self.host, id=id)
 
-    def get_policy_by_id(self, context, id, fields):
+    def get_policy_by_id(self, context, id, fields=None):
         """Retrieve policy by policy id."""
         cctxt = self.client.prepare(version='1.2')
         return cctxt.call(context, 'get_policy_by_id', host=self.host,
