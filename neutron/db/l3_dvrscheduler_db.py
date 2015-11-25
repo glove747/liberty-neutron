@@ -525,6 +525,7 @@ def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
     l3plugin = manager.NeutronManager.get_service_plugins().get(
                     service_constants.L3_ROUTER_NAT)
     context = kwargs['context']
+
     if new_port and original_port:
         original_device_owner = original_port.get('device_owner', '')
         if (original_device_owner.startswith('compute') and
@@ -547,9 +548,11 @@ def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
             l3plugin.dvr_update_floatingip_agent_gateway_shared(context)
         elif original_device_owner == n_const.DEVICE_OWNER_FLOATINGIP:
             fip_id = original_port.get('device_id', '')
-            floatingip = l3plugin.get_floatingip(context, fip_id)
-            router_id = floatingip['router_id']
-            l3plugin.notify_router_updated(context, router_id, 'port_update')
+            fip = l3plugin.get_floatingip(context, fip_id)
+            router_id = fip.get('router_id', '')
+            if router_id:
+                l3plugin.notify_router_updated(context, router_id,
+                                               'port_update')
     else:
         _notify_l3_agent_new_port(resource, event, trigger, **kwargs)
 
