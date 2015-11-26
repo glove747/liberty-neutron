@@ -131,6 +131,21 @@ class QosPolicy(base.NeutronDbObject):
         return cls._get_object_policy(context, cls.port_binding_model,
                                       port_id=port_id)
 
+    @classmethod
+    def get_binding_objects(cls, context, policy_id):
+        models = (
+            ('network', cls.network_binding_model),
+            ('port', cls.port_binding_model)
+        )
+        binding_objects = []
+        admin_context = context.elevated()
+        with db_api.autonested_transaction(admin_context.session):
+            for object_type, model in models:
+                binding_db_obj = db_api.get_object(admin_context, model,
+                                                   policy_id=policy_id)
+                binding_objects.append((object_type, binding_db_obj))
+        return tuple(binding_objects)
+
     # TODO(QoS): Consider extending base to trigger registered methods for us
     def create(self):
         with db_api.autonested_transaction(self._context.session):

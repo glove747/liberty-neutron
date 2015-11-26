@@ -140,6 +140,18 @@ core_opts = [
     cfg.BoolOpt('vlan_transparent', default=False,
                 help=_('If True, then allow plugins that support it to '
                        'create VLAN transparent networks.')),
+    cfg.IntOpt('fip_qos_ingress_max_kbps', default=1024,
+               help=_("Max rate value used for external network "
+                      "ingress traffic control.")),
+    cfg.IntOpt('fip_qos_ingress_max_burst_kbps', default=2048,
+               help=_("Max burst value used for external network "
+                      "ingress traffic control.")),
+    cfg.IntOpt('fip_qos_egress_max_kbps', default=1024,
+               help=_("Max rate value used for external network "
+                      "egress traffic control.")),
+    cfg.IntOpt('fip_qos_egress_max_burst_kbps', default=2048,
+               help=_("Max burst value used for external network "
+                      "egress traffic control.")),
 ]
 
 core_cli_opts = [
