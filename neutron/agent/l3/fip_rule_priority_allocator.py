@@ -13,6 +13,9 @@
 #    under the License.
 
 from neutron.agent.l3.item_allocator import ItemAllocator
+from oslo_log import log as logging
+
+LOG = logging.getLogger(__name__)
 
 
 class FipPriority(object):
@@ -91,5 +94,22 @@ class FipRuleTableAllocator(ItemAllocator):
                                                     RuleTable,
                                                     pool)
 
+    def allocate(self, key):
+        LOG.debug('allocate key: %s, allocations: %s, remembered: %s, pool: %s',
+                  key, self.allocations, self.remembered, self.pool)
+        if key in self.allocations:
+            return self.allocations[key]
+        return super(FipRuleTableAllocator, self).allocate(key)
+
+    def release(self, key):
+        LOG.debug('release key: %s, allocations: %s, remembered: %s, pool: %s',
+                  key, self.allocations, self.remembered, self.pool)
+        if key in self.remembered:
+            self.pool.add(self.remembered.pop(key))
+            self._write_allocations()
+        else:
+            super(FipRuleTableAllocator, self).release(key)
+
     def keys(self):
-        return self.allocations.keys()
+        return self.allocations.keys() + self.remembered.keys()
+
