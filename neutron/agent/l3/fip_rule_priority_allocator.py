@@ -105,10 +105,8 @@ class FipRuleTableAllocator(ItemAllocator):
         LOG.debug('release key: %s, allocations: %s, remembered: %s, pool: %s',
                   key, self.allocations, self.remembered, self.pool)
         if key in self.remembered:
-            self.pool.add(self.remembered.pop(key))
-            self._write_allocations()
-        else:
-            super(FipRuleTableAllocator, self).release(key)
+            self.remembered.pop(key)
+        super(FipRuleTableAllocator, self).release(key)
 
     def keys(self):
         return self.allocations.keys() + self.remembered.keys()
