@@ -419,6 +419,14 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                     LOG.debug("FIP Agent ports: %s", fip_sync_interfaces)
                 router[l3_const.FLOATINGIP_AGENT_INTF_KEY] = (
                     fip_sync_interfaces)
+                fip_sync_interface_shared = \
+                    self._get_fip_sync_interface_shared(context)
+                LOG.debug("FIP Agent Shared port: %s",
+                          fip_sync_interface_shared)
+                if fip_sync_interface_shared:
+                    router[l3_const.FLOATINGIP_AGENT_INTF_KEY] = \
+                        router[l3_const.FLOATINGIP_AGENT_INTF_KEY] + \
+                        [fip_sync_interface_shared]
 
     def _get_fip_sync_interfaces(self, context, fip_agent_id):
         """Query router interfaces that relate to list of router_ids."""
@@ -429,6 +437,16 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         interfaces = self._core_plugin.get_ports(context.elevated(), filters)
         LOG.debug("Return the FIP ports: %s ", interfaces)
         return interfaces
+
+    def _get_fip_sync_interface_shared(self, context):
+        """Query router interface that be shared."""
+        filters = {'device_owner': [l3_const.DEVICE_OWNER_AGENT_GW_SHARED]}
+        interfaces = self._core_plugin.get_ports(context.elevated(), filters)
+        LOG.debug("Return the FIP Shared port: %s ", interfaces)
+        if interfaces:
+            return interfaces[0]
+        else:
+            return None
 
     def _get_dvr_sync_data(self, context, host, agent, router_ids=None,
                           active=None):
