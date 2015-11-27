@@ -55,9 +55,6 @@ class AgentMixin(object):
     def get_port_by_floatingip(self, floating_ip):
         return self.plugin_rpc.get_port_by_floatingip(self.context, floating_ip)
 
-    def get_port_by_id(self, id):
-        return self.plugin_rpc.get_port_by_id(self.context, id)
-
     def get_policy_by_id(self, id, fields=None):
         return self.plugin_rpc.get_policy_by_id(self.context, id,
                                                 fields=fields)
