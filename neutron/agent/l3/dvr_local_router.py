@@ -160,7 +160,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             floating_ip = fip_cidr.split('/')[0]
             fip_port = self.agent.get_port_by_floatingip(floating_ip)
             if not fip_port:
-                LOG.warning("Floating ip does not exist.")
+                LOG.warning("Floating ip could not be found.")
                 return {}
             # get policy and rule
             qos_policy_id = fip_port.get(qos_consts.QOS_POLICY_ID)
