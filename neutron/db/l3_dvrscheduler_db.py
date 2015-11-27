@@ -523,7 +523,7 @@ def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
     new_port = kwargs.get('port')
     original_port = kwargs.get('original_port')
     l3plugin = manager.NeutronManager.get_service_plugins().get(
-                    service_constants.L3_ROUTER_NAT)
+        service_constants.L3_ROUTER_NAT)
     context = kwargs['context']
 
     if new_port and original_port:
