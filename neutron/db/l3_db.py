@@ -13,6 +13,7 @@
 #    under the License.
 
 import netaddr
+from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import uuidutils
 import sqlalchemy as sa
@@ -39,8 +40,10 @@ from neutron.extensions import external_net
 from neutron.extensions import l3
 from neutron.i18n import _LI, _LE
 from neutron import manager
+from neutron.objects.qos import policy as policy_object
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as p_utils
+from neutron.services.qos import qos_consts
 
 LOG = logging.getLogger(__name__)
 
@@ -925,10 +928,101 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                 pass
         return port_id, internal_ip_address, router_id
 
-    def _update_fip_assoc(self, context, fip, floatingip_db, external_port):
+    def _check_and_create_qos(self, context, floatingip_db):
+        # check qos plugin
+        service_plugins = manager.NeutronManager.get_service_plugins()
+        if constants.QOS not in service_plugins:
+            LOG.debug("Service plugin QOS could not be found.")
+            return
+
+        # check floatingip port
+        fip_id = floatingip_db.get('id')
+        f_port_id = floatingip_db.get('floating_port_id')
+        if not f_port_id:
+            LOG.debug("Floatingip port could not be found.")
+            return
+
+        # check policy and rule
+        policy = policy_object.QosPolicy.get_port_policy(context, f_port_id)
+        rules = policy.get('rules') if policy and policy.get('rules') else []
+        rules = [rule for rule in rules if rule.get('type') ==
+                 qos_consts.RULE_TYPE_BANDWIDTH_LIMIT]
+        rule = rules[0] if rules else None
+        if policy and rule:
+            return
+
+        #policies = qos_plugin.get_policies(context, {})
+        #for policy in policies:
+        #    binding_objects = policy_object.QosPolicy.\
+        #        get_binding_objects(context, policy.get('id'))
+        #    for object_type, binding_object in binding_objects:
+        #        if binding_object and object_type == 'port':
+        #            if f_port_id == binding_object.get('port_id'):
+        #                return
+
+        qos_plugin = service_plugins.get(constants.QOS)
+        # create policy
+        if not policy:
+            policy = {
+                'policy': {
+                    'name': 'policy_fip_%s' % fip_id,
+                    'description': 'Auto created',
+                    'tenant_id': context.tenant_id
+                }
+            }
+            policy = qos_plugin.create_policy(context, policy)
+        # create rule
+        if not rule:
+            ingress_max_kbps = cfg.CONF.fip_qos_ingress_max_kbps
+            ingress_max_burst_kbps = cfg.CONF.fip_qos_ingress_max_burst_kbps
+            egress_max_kbps = cfg.CONF.fip_qos_egress_max_kbps
+            egress_max_burst_kbps = cfg.CONF.fip_qos_egress_max_burst_kbps
+            rule = {
+                'bandwidth_limit_rule': {
+                    'ingress_max_kbps': ingress_max_kbps,
+                    'ingress_max_burst_kbps': ingress_max_burst_kbps,
+                    'egress_max_kbps': egress_max_kbps,
+                    'egress_max_burst_kbps': egress_max_burst_kbps
+                }
+            }
+            qos_plugin.create_policy_bandwidth_limit_rule(context,
+                                                          policy['id'],
+                                                          rule)
+        # attach port to policy
+        policy = policy_object.QosPolicy.get_by_id(context, policy['id'])
+        policy.attach_port(f_port_id)
+
+    def _check_and_delete_qos(self, context, fip_id):
+        # check policy
+        floatingip = self._get_floatingip(context, fip_id)
+        f_port_id = floatingip['floating_port_id']
+        policy = policy_object.QosPolicy.get_port_policy(context, f_port_id)
+        if not policy:
+            return
+
+        # detach port from policy whatever the qos plugin exists or not
+        policy.detach_port(f_port_id)
+
+        # check qos plugin
+        service_plugins = manager.NeutronManager.get_service_plugins()
+        if constants.QOS not in service_plugins:
+            LOG.debug("Service plugin QOS could not be found.")
+            return
+
+        # delete policy
+        qos_plugin = service_plugins.get(constants.QOS)
+        qos_plugin.delete_policy(context, policy['id'])
+
+    def _update_fip_assoc(self, context, fip, floatingip_db, external_port,
+                          method):
         previous_router_id = floatingip_db.router_id
         port_id, internal_ip_address, router_id = (
             self._check_and_get_fip_assoc(context, fip, floatingip_db))
+        if method == 'create' or (method == 'update' and port_id):
+            try:
+                self._check_and_create_qos(context, floatingip_db)
+            except Exception, err:
+                LOG.warn("Check and create qos error: %s", str(err))
         floatingip_db.update({'fixed_ip_address': internal_ip_address,
                               'fixed_port_id': port_id,
                               'router_id': router_id,
@@ -997,12 +1091,12 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
             # Update association with internal port
             # and define external IP address
             self._update_fip_assoc(context, fip,
-                                   floatingip_db, external_port)
+                                   floatingip_db, external_port, 'create')
             context.session.add(floatingip_db)
 
         return self._make_floatingip_dict(floatingip_db)
 
-    def _update_floatingip(self, context, id, floatingip):
+    def _update_floatingip(self, context, id, floatingip, method):
         fip = floatingip['floatingip']
         with context.session.begin(subtransactions=True):
             floatingip_db = self._get_floatingip(context, id)
@@ -1012,7 +1106,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
             fip_port_id = floatingip_db['floating_port_id']
             self._update_fip_assoc(context, fip, floatingip_db,
                                    self._core_plugin.get_port(
-                                       context.elevated(), fip_port_id))
+                                       context.elevated(), fip_port_id),
+                                   'update')
         return old_floatingip, self._make_floatingip_dict(floatingip_db)
 
     def _floatingips_to_router_ids(self, floatingips):
@@ -1372,6 +1467,10 @@ class L3_NAT_db_mixin(L3_NAT_dbonly_mixin, L3RpcNotifierMixin):
         return floatingip
 
     def delete_floatingip(self, context, id):
+        try:
+            self._check_and_delete_qos(context, id)
+        except Exception, err:
+            LOG.warn("Check and delete qos error: %s", str(err))
         router_id = self._delete_floatingip(context, id)
         self.notify_router_updated(context, router_id, 'delete_floatingip')
 
