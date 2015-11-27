@@ -21,7 +21,6 @@ import six
 
 from neutron.agent.l3 import dvr_fip_ns
 from neutron.agent.l3 import dvr_router_base
-from neutron.agent.l3 import nova
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import tc_lib
 from neutron.common import constants as l3_constants
@@ -206,57 +205,8 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                     max_burst_kbps or egress_max_burst_kbps
         return qos_rule
 
-    def _get_metadata(self, fip):
-        try:
-            port = self.agent.get_port_by_id(fip['port_id'])
-            key = self.agent_conf.fip_qos_metadata_key
-            metadata = nova.NovaClient().get_metadata(port['device_id'],
-                                                      key)
-            return metadata
-        except Exception, err:
-            LOG.warning("Getting metadata error: %s", err)
-            return {}
-
-    def _process_metadata(self, metadata):
-        if not metadata:
-            metadata = {
-                'ingress': {
-                    'rate': self.agent_conf.fip_qos_max_ingress_rate,
-                    'burst': self.agent_conf.fip_qos_max_ingress_burst
-                },
-                'egress': {
-                    'rate': self.agent_conf.fip_qos_max_egress_rate,
-                    'burst': self.agent_conf.fip_qos_max_egress_burst
-                }
-            }
-        if not ('ingress' in metadata):
-            metadata['ingress'] = {
-                'rate': self.agent_conf.fip_qos_max_ingress_rate,
-                'burst': self.agent_conf.fip_qos_max_ingress_burst
-            }
-        if not ('egress' in metadata):
-            metadata['egress'] = {
-                'rate': self.agent_conf.fip_qos_max_egress_rate,
-                'burst': self.agent_conf.fip_qos_max_egress_burst
-            }
-        if not ('rate' in metadata['ingress']):
-            metadata['ingress']['rate'] = \
-                self.agent_conf.fip_qos_max_ingress_rate
-        if not ('burst' in metadata['ingress']):
-            metadata['ingress']['burst'] = \
-                self.agent_conf.fip_qos_max_ingress_burst
-        if not ('rate' in metadata['egress']):
-            metadata['egress']['rate'] = \
-                self.agent_conf.fip_qos_max_egress_rate
-        if not ('burst' in metadata['egress']):
-            metadata['egress']['burst'] = \
-                self.agent_conf.fip_qos_max_egress_burst
-        return metadata
-
     def floating_ip_added_qos(self, fip):
         try:
-            #metadata = self._get_metadata(fip)
-            #metadata = self._process_metadata(metadata)
             qos_rule = self._get_qos_rule(fip)
             qos_rule = self._process_qos_rule(qos_rule)
             ip_cidr = common_utils.ip_to_cidr(fip['floating_ip_address'])
