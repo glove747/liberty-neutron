@@ -52,9 +52,6 @@ class AgentMixin(object):
     def get_ports_by_subnet(self, subnet_id):
         return self.plugin_rpc.get_ports_by_subnet(self.context, subnet_id)
 
-    def get_port_by_id(self, id):
-        return self.plugin_rpc.get_port_by_id(self.context, id)
-
     def get_policy_by_id(self, id, fields=None):
         return self.plugin_rpc.get_policy_by_id(self.context, id,
                                                 fields=fields)

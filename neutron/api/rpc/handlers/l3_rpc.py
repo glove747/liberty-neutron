@@ -242,12 +242,6 @@ class L3RpcCallback(object):
         filters = {'fixed_ips': {'subnet_id': [subnet_id]}}
         return self.plugin.get_ports(context, filters=filters)
 
-    def get_port_by_id(self, context, **kwargs):
-        """DVR: RPC called by dvr-agent to get port by id."""
-        id = kwargs.get('id')
-        LOG.debug("DVR: id: %s", id)
-        return self.plugin.get_port(context, id)
-
     def get_policy_by_id(self, context, **kwargs):
         """DVR: RPC called by dvr-agent to get policy by id."""
         id = kwargs.get('id')
