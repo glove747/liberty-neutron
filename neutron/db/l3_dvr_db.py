@@ -207,7 +207,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             l3_db.RouterPort.port_type.in_(l3_const.ROUTER_INTERFACE_OWNERS)
         )
 
-    def _update_fip_assoc(self, context, fip, floatingip_db, external_port):
+    def _update_fip_assoc(self, context, fip, floatingip_db, external_port,
+                          method):
         """Override to create floating agent gw port for DVR.
 
         Floating IP Agent gateway port will be created when a
@@ -215,7 +216,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         """
         fip_port = fip.get('port_id')
         super(L3_NAT_with_dvr_db_mixin, self)._update_fip_assoc(
-            context, fip, floatingip_db, external_port)
+            context, fip, floatingip_db, external_port, method)
         associate_fip = fip_port and floatingip_db['id']
         if associate_fip and floatingip_db.get('router_id'):
             admin_ctx = context.elevated()

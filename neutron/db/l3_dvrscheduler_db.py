@@ -529,7 +529,7 @@ def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
     if new_port and original_port:
         original_device_owner = original_port.get('device_owner', '')
         if (original_device_owner.startswith('compute') and
-            not new_port.get('device_owner')):
+                not new_port.get('device_owner')):
             removed_routers = l3plugin.dvr_deletens_if_no_port(
                 context,
                 original_port['id'],
