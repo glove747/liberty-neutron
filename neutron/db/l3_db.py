@@ -951,15 +951,6 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         if policy and rule:
             return
 
-        #policies = qos_plugin.get_policies(context, {})
-        #for policy in policies:
-        #    binding_objects = policy_object.QosPolicy.\
-        #        get_binding_objects(context, policy.get('id'))
-        #    for object_type, binding_object in binding_objects:
-        #        if binding_object and object_type == 'port':
-        #            if f_port_id == binding_object.get('port_id'):
-        #                return
-
         qos_plugin = service_plugins.get(constants.QOS)
         # create policy
         if not policy:
