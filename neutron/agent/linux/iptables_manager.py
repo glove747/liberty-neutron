@@ -709,8 +709,7 @@ class IptablesManager(object):
             return
 
         name = get_chain_name(chain, wrap)
-        acc = {'pkts': 0, 'bytes': 0}
-
+        accs_list = []
         for cmd, table in cmd_tables:
             args = [cmd, '-t', table, '-L', name, '-n', '-v', '-x']
             if zero:
@@ -721,6 +720,7 @@ class IptablesManager(object):
             current_lines = current_table.split('\n')
 
             for line in current_lines[2:]:
+                acc = {'pkts': 0, 'bytes': 0}
                 if not line:
                     break
                 data = line.split()
@@ -728,11 +728,18 @@ class IptablesManager(object):
                         not data[0].isdigit() or
                         not data[1].isdigit()):
                     break
+                for line in current_lines[2:]:
+                    if not line:
+                        break
+                if data[8] == '0.0.0.0/0':
+                    acc['direction'] = 'ingress'
+                else:
+                    acc['direction'] = 'egress'
+                acc['pkts'] = int(data[0])
+                acc['bytes'] = int(data[1])
+                accs_list.append(acc)
 
-                acc['pkts'] += int(data[0])
-                acc['bytes'] += int(data[1])
-
-        return acc
+        return accs_list
 
 
 def make_filter_map(filter_list):

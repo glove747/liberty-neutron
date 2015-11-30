@@ -29,8 +29,11 @@ from neutron.services.metering.drivers import abstract_driver
 
 LOG = logging.getLogger(__name__)
 NS_PREFIX = 'qrouter-'
+DVR_NS_PREFIX = 'fip-'
+DVR_SNAT_NS_PREFIX = 'snat-'
 WRAP_NAME = 'neutron-meter'
 EXTERNAL_DEV_PREFIX = 'qg-'
+DVR_EXTERNAL_DEV_PREFIX = 'fg-'
 TOP_CHAIN = WRAP_NAME + "-FORWARD"
 RULE = '-r-'
 LABEL = '-l-'
@@ -67,9 +70,16 @@ class RouterWithMetering(object):
 
     def __init__(self, conf, router):
         self.conf = conf
+        if router['node_type'] == "compute":
+            ex_net_id = router['fg_port']['network_id']
+            self.ns_name = DVR_NS_PREFIX + ex_net_id if conf.use_namespaces else None
+        elif router['node_type'] == "network":
+            router_id = router['id']
+            self.ns_name = DVR_SNAT_NS_PREFIX + router_id if conf.use_namespaces else None
+        else:
+            self.ns_name = NS_PREFIX + self.id if conf.use_namespaces else None
         self.id = router['id']
         self.router = router
-        self.ns_name = NS_PREFIX + self.id if conf.use_namespaces else None
         self.iptables_manager = iptables_manager.IptablesManager(
             namespace=self.ns_name,
             binary_name=WRAP_NAME,
@@ -131,10 +141,16 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     def get_external_device_name(self, port_id):
         return (EXTERNAL_DEV_PREFIX + port_id)[:self.driver.DEV_NAME_LEN]
 
+    def get_dvr_fg_device_name(self, port_id):
+        return (DVR_EXTERNAL_DEV_PREFIX + port_id)[:self.driver.DEV_NAME_LEN]
+ 
     def _process_metering_label_rules(self, rm, rules, label_chain,
                                       rules_chain):
         im = rm.iptables_manager
-        ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
+        if rm.router['node_type'] == "compute":
+            ext_dev = self.get_dvr_fg_device_name(rm.router['fg_port']['id'])
+        else:
+            ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
         if not ext_dev:
             return
 
@@ -255,6 +271,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
 
     @log_helpers.log_method_call
     def add_metering_label_rule(self, context, routers):
+        LOG.debug("GLOVE_server_routers: " + str(routers))
         for router in routers:
             self._add_metering_label_rule(router)
 
@@ -278,7 +295,11 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
         rm = self.routers.get(router['id'])
         if not rm:
             return
-        ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
+        LOG.debug("GLOVE_ROUTER: " +str(router))
+        if router['node_type'] == "compute":
+            ext_dev = self.get_dvr_fg_device_name(router['fg_port']['id'])
+        else:
+            ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
         if not ext_dev:
             return
         with IptablesManagerTransaction(rm.iptables_manager):
@@ -342,29 +363,24 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
             rm = self.routers.get(router['id'])
             if not rm:
                 continue
-
             for label_id, label in rm.metering_labels.items():
                 try:
                     chain = iptables_manager.get_chain_name(WRAP_NAME +
-                                                            LABEL +
+                                                            RULE +
                                                             label_id,
                                                             wrap=False)
 
-                    chain_acc = rm.iptables_manager.get_traffic_counters(
+                    chain_acc_list = rm.iptables_manager.get_traffic_counters(
                         chain, wrap=False, zero=True)
                 except RuntimeError:
                     LOG.exception(_LE('Failed to get traffic counters, '
                                       'router: %s'), router)
                     continue
 
-                if not chain_acc:
+                if not chain_acc_list:
                     continue
 
-                acc = accs.get(label_id, {'pkts': 0, 'bytes': 0})
-
-                acc['pkts'] += chain_acc['pkts']
-                acc['bytes'] += chain_acc['bytes']
-
-                accs[label_id] = acc
-
+                #acc = accs.get(label_id, {'pkts': 0, 'bytes': 0})
+                for acc in chain_acc_list:
+                    accs[label['name'] + '_' + acc['direction']] = acc               
         return accs

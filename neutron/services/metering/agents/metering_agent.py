@@ -71,6 +71,8 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                    help=_("Interval between two metering measures")),
         cfg.IntOpt('report_interval', default=300,
                    help=_("Interval between two metering reports")),
+        cfg.StrOpt('node_type', default=None,
+                   help=_("used in dev mode.")),
     ]
 
     def __init__(self, host, conf=None):
@@ -186,6 +188,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
     @periodic_task.periodic_task(run_immediately=True)
     def _sync_routers_task(self, context):
         routers = self._get_sync_data_metering(self.context)
+        LOG.debug("GLOVE routers: "+str(routers))
         if not routers:
             return
         self._update_routers(context, routers)
@@ -209,8 +212,9 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
     def _update_routers(self, context, routers):
         for router in routers:
             self.routers[router['id']] = router
-
-        return self._invoke_driver(context, routers,
+        routers_list = self._update_routers_by_host(routers)
+        LOG.debug("GLOVE_routers_list: "+str(routers_list))
+        return self._invoke_driver(context, routers_list,
                                    'update_routers')
 
     def _get_traffic_counters(self, context, routers):
@@ -218,11 +222,14 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         return self._invoke_driver(context, routers, 'get_traffic_counters')
 
     def add_metering_label_rule(self, context, routers):
-        return self._invoke_driver(context, routers,
+        routers_list = self._update_routers_by_host(routers)
+        LOG.debug("GLOVE_routers_list: " +str(routers_list))
+        return self._invoke_driver(context, routers_list,
                                    'add_metering_label_rule')
 
     def remove_metering_label_rule(self, context, routers):
-        return self._invoke_driver(context, routers,
+        routers_list = self._update_routers_by_host(routers)
+        return self._invoke_driver(context, routers_list,
                                    'remove_metering_label_rule')
 
     def update_metering_label_rules(self, context, routers):
@@ -230,14 +237,31 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         return self._invoke_driver(context, routers,
                                    'update_metering_label_rules')
 
+    def _update_routers_by_host(self, routers):
+        routers_list = []
+        node_type = self.conf.node_type
+        for router in routers:
+            router['node_type'] = node_type
+            labels_list = []
+            labels = router.get(constants.METERING_LABEL_KEY, [])
+            for label in labels:
+                if node_type == 'compute' and label['host'] == self.host:
+                    labels_list.append(label)
+                if node_type == 'network' and label['name'] == router['id']:
+                    labels_list.append(label)
+            router[constants.METERING_LABEL_KEY] = labels_list
+            routers_list.append(router)
+
+        return routers_list
+
     def add_metering_label(self, context, routers):
         LOG.debug("Creating a metering label from agent")
-        return self._invoke_driver(context, routers,
+        routers_list = self._update_routers_by_host(routers)
+        return self._invoke_driver(context, routers_list,
                                    'add_metering_label')
 
     def remove_metering_label(self, context, routers):
         self._add_metering_infos()
-
         LOG.debug("Delete a metering label from agent")
         return self._invoke_driver(context, routers,
                                    'remove_metering_label')

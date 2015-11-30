@@ -25,6 +25,11 @@ from neutron.db import common_db_mixin as base_db
 from neutron.db import l3_db
 from neutron.db import model_base
 from neutron.db import models_v2
+from neutron import manager
+from neutron.plugins.common import constants as plugin_constants
+from neutron.common import utils as n_utils
+from neutron.extensions import portbindings
+from oslo_config import cfg
 from neutron.extensions import metering
 
 
@@ -60,6 +65,10 @@ class MeteringDbMixin(metering.MeteringPluginBase,
 
     def __init__(self):
         self.meter_rpc = metering_rpc_agent_api.MeteringAgentNotifyAPI()
+
+    @property
+    def _core_plugin(self):
+        return manager.NeutronManager.get_plugin()
 
     def _make_metering_label_dict(self, metering_label, fields=None):
         res = {'id': metering_label['id'],
@@ -209,10 +218,65 @@ class MeteringDbMixin(metering.MeteringPluginBase,
 
         return res
 
+    def get_port_by_floatingip(self, context, **kwargs):
+        """METERING: RPC called by metering-agent to get port for floatingip."""
+        floating_ip = kwargs.get('floating_ip')
+        LOG.debug("DVR: floatingip.ip_address: %s", floating_ip)
+        filters = {
+            'device_owner': [constants.DEVICE_OWNER_FLOATINGIP],
+            'fixed_ips': {'ip_address': [floating_ip]}
+        }
+        ports = self._core_plugin.get_ports(context, filters=filters)
+        if ports and len(ports) == 1:
+            return ports[0]
+        else:
+            LOG.error("get_port_by_floatingip found not single, "
+                      "floating_ip: %s, ports: %s", floating_ip, ports)
+    
+    def get_fg_port_by_owner(self, context, **kwargs):
+        """METERING: RPC called by metering-agent to get fg port by owner."""
+        device_owner = kwargs.get('device_owner')
+        LOG.debug("Metering: fg port owner is %s", device_owner)
+        filters = {
+            'device_owner': [device_owner],
+        }
+        ports = self._core_plugin.get_ports(context, filters=filters)
+        if ports and len(ports) == 1:
+            return ports[0]
+        else:
+            LOG.error("get fg port not found or not single, "
+                      "fg ports: %s", ports)
+
+    @property
+    def l3plugin(self):
+        if not hasattr(self, '_l3plugin'):
+            self._l3plugin = manager.NeutronManager.get_service_plugins()[
+                plugin_constants.L3_ROUTER_NAT]
+        return self._l3plugin
+    
+    def _get_label_host_and_fg_port(self, context, label):
+        hostid = ''
+        fip = label['name']
+        fip_port = self.get_port_by_floatingip(context, floating_ip=fip)
+        LOG.debug("TCLOUD_fip_port: "+str(fip_port))
+        fip_detail = self.l3plugin.get_floatingip(context,fip_port['device_id'])
+        fixed_port_id = fip_detail['port_id']
+        LOG.debug("TCLOUD_fip_detail: "+str(fip_detail))
+        vm_port_db = self._core_plugin.get_port(context, fixed_port_id)
+        LOG.debug("TCLOUD_vm_port_db: "+str(vm_port_db))
+        device_owner = vm_port_db['device_owner'] if vm_port_db else ""
+        if n_utils.is_dvr_serviced(device_owner):
+            hostid = vm_port_db[portbindings.HOST_ID]
+        fg_port = self.get_fg_port_by_owner(context,
+                                  device_owner=constants.DEVICE_OWNER_AGENT_GW_SHARED)
+        LOG.debug("TCLOUD_fg_port: "+str(fg_port))
+        return hostid, fg_port
+
     def _process_sync_metering_data(self, context, labels):
         all_routers = None
-
         routers_dict = {}
+        hostid = ''
+        fg_port = {}
         for label in labels:
             if label.shared:
                 if not all_routers:
@@ -221,35 +285,44 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                 routers = all_routers
             else:
                 routers = label.routers
-
+            if cfg.CONF.router_distributed:
+                try:
+                    hostid, fg_port = self._get_label_host_and_fg_port(context, label)
+                except Exception:
+                    LOG.error("TCLOUD metering-agent process sync metering data failed in dvr mode.")
             for router in routers:
                 router_dict = routers_dict.get(
                     router['id'],
                     self._make_router_dict(router))
 
                 rules = self._get_metering_rules_dict(label)
-
-                data = {'id': label['id'], 'rules': rules}
+                data = {'id': label['id'], 'name': label.name, 'host': hostid, 'rules': rules}
+                router_dict['fg_port'] = fg_port   
                 router_dict[constants.METERING_LABEL_KEY].append(data)
-
+                LOG.debug("TCLOUD_router_dict: "+str(router_dict))
                 routers_dict[router['id']] = router_dict
-
         return list(routers_dict.values())
 
     def get_sync_data_for_rule(self, context, rule):
         label = context.session.query(MeteringLabel).get(
             rule['metering_label_id'])
-
+        hostid = ''
+        fg_port = {}
         if label.shared:
             routers = self._get_collection_query(context, l3_db.Router)
         else:
             routers = label.routers
-
+        if cfg.CONF.router_distributed:
+                try:
+                    hostid, fg_port = self._get_label_host_and_fg_port(context, label)
+                except Exception:
+                    LOG.error("TCLOUD metering-agent process sync metering rule data failed in dvr mode.")
         routers_dict = {}
         for router in routers:
             router_dict = routers_dict.get(router['id'],
                                            self._make_router_dict(router))
-            data = {'id': label['id'], 'rule': rule}
+            data = {'id': label['id'],'name': label.name, 'host': hostid,'rule': rule}
+            router_dict['fg_port'] = fg_port
             router_dict[constants.METERING_LABEL_KEY].append(data)
             routers_dict[router['id']] = router_dict
 
@@ -263,5 +336,5 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         elif router_ids:
             labels = (labels.join(MeteringLabel.routers).
                       filter(l3_db.Router.id.in_(router_ids)))
-
+        LOG.debug("GLOVE_labels: "+str(labels)+"END GLOVE")
         return self._process_sync_metering_data(context, labels)
