@@ -1087,7 +1087,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
 
         return self._make_floatingip_dict(floatingip_db)
 
-    def _update_floatingip(self, context, id, floatingip, method):
+    def _update_floatingip(self, context, id, floatingip):
         fip = floatingip['floatingip']
         with context.session.begin(subtransactions=True):
             floatingip_db = self._get_floatingip(context, id)
