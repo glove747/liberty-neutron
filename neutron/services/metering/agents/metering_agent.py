@@ -212,7 +212,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
     def _update_routers(self, context, routers):
         for router in routers:
             self.routers[router['id']] = router
-        routers_list = self._update_routers_by_host(routers)
+        routers_list = self._update_routers_by_host_and_node_type(routers)
         LOG.debug("GLOVE_routers_list: "+str(routers_list))
         return self._invoke_driver(context, routers_list,
                                    'update_routers')
@@ -222,13 +222,13 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         return self._invoke_driver(context, routers, 'get_traffic_counters')
 
     def add_metering_label_rule(self, context, routers):
-        routers_list = self._update_routers_by_host(routers)
+        routers_list = self._update_routers_by_host_and_node_type(routers)
         LOG.debug("GLOVE_routers_list: " +str(routers_list))
         return self._invoke_driver(context, routers_list,
                                    'add_metering_label_rule')
 
     def remove_metering_label_rule(self, context, routers):
-        routers_list = self._update_routers_by_host(routers)
+        routers_list = self._update_routers_by_host_and_node_type(routers)
         return self._invoke_driver(context, routers_list,
                                    'remove_metering_label_rule')
 
@@ -237,7 +237,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         return self._invoke_driver(context, routers,
                                    'update_metering_label_rules')
 
-    def _update_routers_by_host(self, routers):
+    def _update_routers_by_host_and_node_type(self, routers):
         routers_list = []
         node_type = self.conf.node_type
         for router in routers:
@@ -256,7 +256,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
 
     def add_metering_label(self, context, routers):
         LOG.debug("Creating a metering label from agent")
-        routers_list = self._update_routers_by_host(routers)
+        routers_list = self._update_routers_by_host_and_node_type(routers)
         return self._invoke_driver(context, routers_list,
                                    'add_metering_label')
 

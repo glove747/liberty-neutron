@@ -258,18 +258,14 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         hostid = ''
         fip = label['name']
         fip_port = self.get_port_by_floatingip(context, floating_ip=fip)
-        LOG.debug("TCLOUD_fip_port: "+str(fip_port))
-        fip_detail = self.l3plugin.get_floatingip(context,fip_port['device_id'])
-        fixed_port_id = fip_detail['port_id']
-        LOG.debug("TCLOUD_fip_detail: "+str(fip_detail))
-        vm_port_db = self._core_plugin.get_port(context, fixed_port_id)
-        LOG.debug("TCLOUD_vm_port_db: "+str(vm_port_db))
-        device_owner = vm_port_db['device_owner'] if vm_port_db else ""
-        if n_utils.is_dvr_serviced(device_owner):
-            hostid = vm_port_db[portbindings.HOST_ID]
+        if fip_port:
+            fip_detail = self.l3plugin.get_floatingip(context, fip_port['device_id'])
+            fixed_port_id = fip_detail['port_id']
+            if fixed_port_id:
+                vm_port_db = self._core_plugin.get_port(context, fixed_port_id)
+                hostid = vm_port_db[portbindings.HOST_ID] if vm_port_db else ""
         fg_port = self.get_fg_port_by_owner(context,
                                   device_owner=constants.DEVICE_OWNER_AGENT_GW_SHARED)
-        LOG.debug("TCLOUD_fg_port: "+str(fg_port))
         return hostid, fg_port
 
     def _process_sync_metering_data(self, context, labels):
@@ -299,7 +295,7 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                 data = {'id': label['id'], 'name': label.name, 'host': hostid, 'rules': rules}
                 router_dict['fg_port'] = fg_port   
                 router_dict[constants.METERING_LABEL_KEY].append(data)
-                LOG.debug("TCLOUD_router_dict: "+str(router_dict))
+                LOG.debug("TCLOUD_router_dict: " + str(router_dict))
                 routers_dict[router['id']] = router_dict
         return list(routers_dict.values())
 
@@ -321,7 +317,7 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         for router in routers:
             router_dict = routers_dict.get(router['id'],
                                            self._make_router_dict(router))
-            data = {'id': label['id'],'name': label.name, 'host': hostid,'rule': rule}
+            data = {'id': label['id'], 'name': label.name, 'host': hostid, 'rule': rule}
             router_dict['fg_port'] = fg_port
             router_dict[constants.METERING_LABEL_KEY].append(data)
             routers_dict[router['id']] = router_dict
@@ -336,5 +332,5 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         elif router_ids:
             labels = (labels.join(MeteringLabel.routers).
                       filter(l3_db.Router.id.in_(router_ids)))
-        LOG.debug("GLOVE_labels: "+str(labels)+"END GLOVE")
+        LOG.debug("GLOVE_labels: " + str(labels) + "END GLOVE")
         return self._process_sync_metering_data(context, labels)
