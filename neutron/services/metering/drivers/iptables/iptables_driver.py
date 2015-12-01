@@ -203,11 +203,12 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
         return ipt_rule
 
     def _process_associate_metering_label(self, router):
+        labels = router.get(constants.METERING_LABEL_KEY, [])
+        if len(labels) == 0:
+            return
         self._update_router(router)
         rm = self.routers.get(router['id'])
-
         with IptablesManagerTransaction(rm.iptables_manager):
-            labels = router.get(constants.METERING_LABEL_KEY, [])
             for label in labels:
                 label_id = label['id']
 
