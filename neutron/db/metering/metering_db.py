@@ -108,7 +108,10 @@ class MeteringDbMixin(metering.MeteringPluginBase,
             raise metering.MeteringLabelNotFound(label_id=label_id)
 
         return self._make_metering_label_dict(metering_label, fields)
-
+    
+    def get_metering_labels_by_name(self, context, label_name):
+        return context.session.query(MeteringLabel).filter_by(name=label_name)
+          
     def get_metering_labels(self, context, filters=None, fields=None,
                             sorts=None, limit=None, marker=None,
                             page_reverse=False):
