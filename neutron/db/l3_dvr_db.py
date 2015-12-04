@@ -174,6 +174,9 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             if not ext_net_gw_ports:
                 self.delete_floatingip_agent_gateway_port(
                     context.elevated(), None, gw_ext_net_id)
+            metering_plugin = self._get_plugin(context, constants.METERING)
+            if metering_plugin:
+                self.delete_metering_label_and_rule_if_exist(context, metering_plugin, router_id)
 
     def _create_gw_port(self, context, router_id, router, new_network,
                         ext_ips):
@@ -185,9 +188,18 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         if router.extra_attributes.distributed and router.gw_port:
             snat_p_list = self._create_snat_intf_ports_if_not_exists(
                 context.elevated(), router)
+            metering_plugin = self._get_plugin(context, constants.METERING)
+            if metering_plugin:
+                gw_port = self._core_plugin.get_port(
+                                       context.elevated(), router['gw_port_id'])
+                ip_prefix = ""
+                for fixed_ip in gw_port['fixed_ips']:
+                    ip_prefix = fixed_ip['ip_address']
+                self.create_metering_label_and_rule(context, metering_plugin, router['tenant_id'], 
+                                                    router['id'], ip_prefix)
             if not snat_p_list:
                 LOG.debug("SNAT interface ports not created: %s", snat_p_list)
-
+        
     def _get_device_owner(self, context, router=None):
         """Get device_owner for the specified router."""
         router_is_uuid = isinstance(router, six.string_types)
@@ -219,7 +231,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         associate_fip = fip_port and floatingip_db['id']
         metering_plugin = self._get_plugin(context, constants.METERING)
         if not associate_fip and metering_plugin:
-            self.delete_metering_label_and_rule_for_fip_if_exist(context, metering_plugin, floatingip_db)
+            self.delete_metering_label_and_rule_if_exist(context, metering_plugin, floatingip_db['floating_ip_address'])
         if associate_fip and floatingip_db.get('router_id'):
             admin_ctx = context.elevated()
             router_dict = self.get_router(
@@ -241,7 +253,9 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                             vm_hostid))
                     LOG.debug("FIP Agent gateway port: %s", fip_agent_port)
                     if metering_plugin:
-                        self.create_metering_label_and_rule_for_fip(context, metering_plugin, floatingip_db)
+                        self.create_metering_label_and_rule(context, metering_plugin,
+                                                floatingip_db['tenant_id'], floatingip_db['floating_ip_address'], 
+                                                floatingip_db['floating_ip_address'])
                     
     def _get_plugin(self, context, plugin):
         service_plugins = manager.NeutronManager.get_service_plugins()
@@ -250,41 +264,47 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             return None
         return service_plugins.get(plugin)
     
-    def create_metering_label_and_rule_for_fip(self, context,  metering_plugin, floatingip_db):
-        metering_label = self._get_metering_label_dict(floatingip_db)
+    def create_metering_label_and_rule(self, context, metering_plugin, tenant_id, label_name, ip_prefix):
+        metering_label = self._get_metering_label_dict(tenant_id, label_name)
         label = metering_plugin.create_metering_label(context, metering_label)
         if label:
-            metering_label_rule = self._get_metering_label_rule_dict(floatingip_db, label, 'ingress')
-            metering_plugin.create_metering_label_rule(context, metering_label_rule)
-            metering_label_rule = self._get_metering_label_rule_dict(floatingip_db, label, 'egress')
-            metering_plugin.create_metering_label_rule(context, metering_label_rule)
+            metering_label_rules = self._get_metering_label_rule_dict(ip_prefix, label)
+            for metering_label_rule in metering_label_rules:
+                metering_plugin.create_metering_label_rule(context, metering_label_rule)
+          
 
-    def delete_metering_label_and_rule_for_fip_if_exist(self, context, metering_plugin, floatingip_db):
-        labels = metering_plugin.get_metering_labels_by_name(context, floatingip_db['floating_ip_address'])
+    def delete_metering_label_and_rule_if_exist(self, context, metering_plugin, label_name):
+        labels = metering_plugin.get_metering_labels_by_name(context, label_name)
         if labels:
             for label in labels:
                 metering_plugin.delete_metering_label(context, label['id'])
 
-    def _get_metering_label_dict(self, floatingip_db):
+    def _get_metering_label_dict(self, tenant_id, label_name):
         label = {}
         metering_label = {}
         label['shared'] = False
-        label['tenant_id'] = floatingip_db['tenant_id']
-        label['name'] =  floatingip_db['floating_ip_address']
+        label['tenant_id'] = tenant_id
+        label['name'] = label_name
         label['description'] = ""
         metering_label['metering_label'] = label
         return metering_label
 
-    def _get_metering_label_rule_dict(self, floatingip_db, label, direction):
-        label_rule = {}
-        metering_label_rule = {}
-        label_rule['remote_ip_prefix'] = floatingip_db['floating_ip_address'] + '/32'
-        label_rule['direction'] = direction
-        label_rule['metering_label_id'] = label['id']
-        label_rule['excluded'] = False
-        label_rule['tenant_id'] = floatingip_db['tenant_id']
-        metering_label_rule['metering_label_rule'] = label_rule
-        return metering_label_rule
+    def _get_metering_label_rule_dict(self, ip_prefix, label):
+        metering_label_rules = []
+        directions = []
+        directions.append('ingress')
+        directions.append('egress')
+        for direction in directions:
+            metering_label_rule = {}
+            label_rule = {}
+            label_rule['remote_ip_prefix'] = ip_prefix + '/32'
+            label_rule['direction'] = direction
+            label_rule['metering_label_id'] = label['id']
+            label_rule['excluded'] = False
+            label_rule['tenant_id'] = label['tenant_id']
+            metering_label_rule['metering_label_rule'] = label_rule
+            metering_label_rules.append(metering_label_rule)
+        return metering_label_rules
     
     def _get_floatingip_on_port(self, context, port_id=None):
         """Helper function to retrieve the fip associated with port."""
