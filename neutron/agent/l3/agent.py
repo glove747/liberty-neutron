@@ -60,11 +60,6 @@ except Exception:
 
 LOG = logging.getLogger(__name__)
 
-try:
-    from neutron.services.metering.agents.l3reference \
-        import metering_l3_agent
-except Exception:
-    LOG.debug("metering_l3_agent import failed!")
 # TODO(Carl) Following constants retained to increase SNR during refactoring
 NS_PREFIX = namespaces.NS_PREFIX
 INTERNAL_DEV_PREFIX = namespaces.INTERNAL_DEV_PREFIX
@@ -153,8 +148,7 @@ class L3PluginApi(object):
                           host=self.host, network_id=fip_net)
 
 
-class L3NATAgent(firewall_l3_agent.MeteringAgentRpcCallback,
-                 firewall_l3_agent.FWaaSL3AgentRpcCallback,
+class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                  ha.AgentMixin,
                  dvr.AgentMixin,
                  manager.Manager):
