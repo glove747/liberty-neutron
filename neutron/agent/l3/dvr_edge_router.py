@@ -134,6 +134,8 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
             use_ipv6=self.use_ipv6)
         # kicks the FW Agent to add rules for the snat namespace
         self.agent.process_router_add(self)
+        #GL#callback neutronserver
+        self.agent.router_gateway_statuses(self)
 
     def _create_snat_namespace(self):
         # TODO(mlavalle): in the near future, this method should contain the

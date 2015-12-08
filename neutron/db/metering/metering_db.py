@@ -220,7 +220,10 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                constants.METERING_LABEL_KEY: []}
 
         return res
-
+    
+    def get_floatingip_by_id(self, context, fip_id):
+        return self._core_plugin.get_floatingip(context, fip_id)
+    
     def get_port_by_floatingip(self, context, **kwargs):
         """METERING: RPC called by metering-agent to get port for floatingip."""
         floating_ip = kwargs.get('floating_ip')
@@ -337,3 +340,55 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                       filter(l3_db.Router.id.in_(router_ids)))
         LOG.debug("GLOVE_labels: " + str(labels) + "END GLOVE")
         return self._process_sync_metering_data(context, labels)
+    
+def _get_plugin(self, context, plugin):
+    service_plugins = manager.NeutronManager.get_service_plugins()
+    if plugin not in service_plugins:
+        LOG.debug("Plugin could not be found: %s" , plugin)
+        return None
+    return service_plugins.get(plugin)
+    
+def create_metering_label_and_rule_if_not_exist(self, context, metering_plugin, tenant_id, label_name, ip_prefix):
+    labels = metering_plugin.get_metering_labels_by_name(context, label_name)
+    if labels:
+        return
+    metering_label = self._get_metering_label_dict(tenant_id, label_name)
+    label = metering_plugin.create_metering_label(context, metering_label)
+    if label:
+        metering_label_rules = self._get_metering_label_rule_dict(ip_prefix, label)
+        for metering_label_rule in metering_label_rules:
+            metering_plugin.create_metering_label_rule(context, metering_label_rule)
+          
+
+def delete_metering_label_and_rule_if_exist(self, context, metering_plugin, label_name):
+    labels = metering_plugin.get_metering_labels_by_name(context, label_name)
+    if labels:
+        for label in labels:
+            metering_plugin.delete_metering_label(context, label['id'])
+
+def _get_metering_label_dict(self, tenant_id, label_name):
+    label = {}
+    metering_label = {}
+    label['shared'] = False
+    label['tenant_id'] = tenant_id
+    label['name'] = label_name
+    label['description'] = ""
+    metering_label['metering_label'] = label
+    return metering_label
+
+def _get_metering_label_rule_dict(self, ip_prefix, label):
+    metering_label_rules = []
+    directions = []
+    directions.append('ingress')
+    directions.append('egress')
+    for direction in directions:
+        metering_label_rule = {}
+        label_rule = {}
+        label_rule['remote_ip_prefix'] = ip_prefix + '/32'
+        label_rule['direction'] = direction
+        label_rule['metering_label_id'] = label['id']
+        label_rule['excluded'] = False
+        label_rule['tenant_id'] = label['tenant_id']
+        metering_label_rule['metering_label_rule'] = label_rule
+        metering_label_rules.append(metering_label_rule)
+    return metering_label_rules

@@ -64,7 +64,7 @@ LOG = logging.getLogger(__name__)
 NS_PREFIX = namespaces.NS_PREFIX
 INTERNAL_DEV_PREFIX = namespaces.INTERNAL_DEV_PREFIX
 EXTERNAL_DEV_PREFIX = namespaces.EXTERNAL_DEV_PREFIX
-
+SNAT_NS_PREFIX = 'snat-'
 
 class L3PluginApi(object):
     """Agent side of the l3 agent RPC API.
@@ -111,6 +111,12 @@ class L3PluginApi(object):
         cctxt = self.client.prepare(version='1.1')
         return cctxt.call(context, 'update_floatingip_statuses',
                           router_id=router_id, fip_statuses=fip_statuses)
+        
+    def update_router_gateway_statuses(self, context, router, gateway_statuses):
+        """Call the plugin update router gateway operational status."""
+        cctxt = self.client.prepare(version='1.1')
+        return cctxt.call(context, 'update_router_gateway_statuses',
+                          router=router, gateway_statuses=gateway_statuses)
 
     def get_ports_by_subnet(self, context, subnet_id):
         """Retrieve ports by subnet id."""
@@ -379,6 +385,19 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         # Update floating IP status on the neutron server
         self.plugin_rpc.update_floatingip_statuses(
             self.context, ri.router_id, fip_statuses)
+    #GL#   
+    def router_gateway_statuses(self, ri):
+        # get gate_way statuses        
+        namespace = SNAT_NS_PREFIX + ri.router_id
+        ns = ip_lib.IPWrapper(namespace=namespace)
+        if ns.netns.exists(namespace):
+            gateway_statuses = l3_constants.ROUTER_GATEWAY_STATUS_ACTIVE
+        else:
+            gateway_statuses = l3_constants.ROUTER_GATEWAY_STATUS_DOWN
+        LOG.debug('Sending router gateway statuses: %s', gateway_statuses)
+        # Update floating IP status on the neutron server
+        self.plugin_rpc.update_router_gateway_statuses(
+            self.context, ri.router, gateway_statuses)
 
     def router_deleted(self, context, router_id):
         """Deal with router deletion RPC message."""
