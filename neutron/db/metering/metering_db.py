@@ -221,9 +221,6 @@ class MeteringDbMixin(metering.MeteringPluginBase,
 
         return res
     
-    def get_floatingip_by_id(self, context, fip_id):
-        return self._core_plugin.get_floatingip(context, fip_id)
-    
     def get_port_by_floatingip(self, context, **kwargs):
         """METERING: RPC called by metering-agent to get port for floatingip."""
         floating_ip = kwargs.get('floating_ip')
@@ -350,12 +347,12 @@ def _get_plugin(context, plugin):
     
 def create_metering_label_and_rule_if_not_exist(context, metering_plugin, tenant_id, label_name, ip_prefix):
     labels = metering_plugin.get_metering_labels_by_name(context, label_name)
-    if labels:
+    for label in labels:
         return
-    metering_label = self._get_metering_label_dict(tenant_id, label_name)
+    metering_label = _get_metering_label_dict(tenant_id, label_name)
     label = metering_plugin.create_metering_label(context, metering_label)
     if label:
-        metering_label_rules = self._get_metering_label_rule_dict(ip_prefix, label)
+        metering_label_rules = _get_metering_label_rule_dict(ip_prefix, label)
         for metering_label_rule in metering_label_rules:
             metering_plugin.create_metering_label_rule(context, metering_label_rule)
           

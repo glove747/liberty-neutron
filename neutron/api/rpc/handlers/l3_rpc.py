@@ -236,15 +236,16 @@ class L3RpcCallback(object):
                     context, fip_id, constants.FLOATINGIP_STATUS_DOWN)
             metering_plugin = metering_db._get_plugin(context, plugin_constants.METERING)
             if metering_plugin:
-                fip = metering_plugin.get_floatingip_by_id(context, fip_statuses['id'])
-                if fip_statuses == constants.FLOATINGIP_STATUS_ACTIVE:
-                    metering_db.create_metering_label_and_rule_if_not_exist(context, metering_plugin,
-                                            fip['tenant_id'], fip['floating_ip_address'],
-                                            fip['floating_ip_address'])
-                elif fip_statuses == constants.FLOATINGIP_STATUS_DOWN:
-                    metering_db.delete_metering_label_and_rule_if_exist(context,
-                                                        metering_plugin, fip['floating_ip_address'])
-     
+                for fip_id in fip_statuses.keys():
+                    fip = self.l3plugin.get_floatingip(context, fip_id)
+                    if fip_statuses == constants.FLOATINGIP_STATUS_ACTIVE:
+                        metering_db.create_metering_label_and_rule_if_not_exist(context, metering_plugin,
+                                                fip['tenant_id'], fip['floating_ip_address'],
+                                                fip['floating_ip_address'])
+                    elif fip_statuses == constants.FLOATINGIP_STATUS_DOWN:
+                        metering_db.delete_metering_label_and_rule_if_exist(context,
+                                                            metering_plugin, fip['floating_ip_address'])
+         
     def update_router_gateway_statuses(self, context, router, gateway_statuses):
         """triger add metering to floatingip or ex_gw"""
         with context.session.begin(subtransactions=True):
