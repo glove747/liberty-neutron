@@ -18,7 +18,7 @@ from oslo_log import log as logging
 import oslo_messaging
 from oslo_serialization import jsonutils
 import six
-from neutron.plugins.common import plugins_constants
+from neutron.common import constants
 from neutron.common import exceptions
 from neutron.common import utils
 from neutron import context as neutron_context
@@ -234,7 +234,7 @@ class L3RpcCallback(object):
             for fip_id in fips_to_disable:
                 self.l3plugin.update_floatingip_status(
                     context, fip_id, constants.FLOATINGIP_STATUS_DOWN)
-            metering_plugin = metering_db._get_plugin(context, plugins_constants.METERING)
+            metering_plugin = metering_db._get_plugin(context, plugin_constants.METERING)
             if metering_plugin:
                 fip = metering_plugin.get_floatingip_by_id(context, fip_statuses['id'])
                 if fip_statuses == constants.FLOATINGIP_STATUS_ACTIVE:
@@ -248,7 +248,7 @@ class L3RpcCallback(object):
     def update_router_gateway_statuses(self, context, router, gateway_statuses):
         """triger add metering to floatingip or ex_gw"""
         with context.session.begin(subtransactions=True):
-            metering_plugin = metering_db._get_plugin(context, plugins_constants.METERING)
+            metering_plugin = metering_db._get_plugin(context, plugin_constants.METERING)
             if metering_plugin:
                 if gateway_statuses == constants.ROUTER_GATEWAY_STATUS_ACTIVE:
                     gw_port = self._core_plugin.get_port(
