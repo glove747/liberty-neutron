@@ -251,7 +251,7 @@ class L3RpcCallback(object):
             metering_plugin = metering_db._get_plugin(context, plugin_constants.METERING)
             if metering_plugin:
                 if gateway_statuses == constants.ROUTER_GATEWAY_STATUS_ACTIVE:
-                    gw_port = self._core_plugin.get_port(
+                    gw_port = metering_plugin._core_plugin.get_port(
                                            context.elevated(), router['gw_port_id'])
                     ip_prefix = ""
                     for fixed_ip in gw_port['fixed_ips']:
