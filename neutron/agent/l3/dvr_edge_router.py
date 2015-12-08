@@ -19,6 +19,7 @@ from neutron.agent.l3 import dvr_snat_ns
 from neutron.agent.l3 import router_info as router
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
+from neutron.common import constants as l3_constants
 
 LOG = logging.getLogger(__name__)
 
@@ -71,8 +72,8 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
                            prefix=router.EXTERNAL_DEV_PREFIX)
         self.snat_namespace.delete()
         self.snat_namespace = None
-        #GL#callback neutronserver
-        self.agent.router_gateway_statuses(self)
+        # GL#callback neutronserver
+        self.agent.router_gateway_statuses(self, l3_constants.ROUTER_GATEWAY_STATUS_DOWN)
 
     def internal_network_added(self, port):
         super(DvrEdgeRouter, self).internal_network_added(port)
@@ -136,8 +137,8 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
             use_ipv6=self.use_ipv6)
         # kicks the FW Agent to add rules for the snat namespace
         self.agent.process_router_add(self)
-        #GL#callback neutronserver
-        self.agent.router_gateway_statuses(self)
+        # GL#callback neutronserver
+        self.agent.router_gateway_statuses(self, l3_constants.ROUTER_GATEWAY_STATUS_ACTIVE)
 
     def _create_snat_namespace(self):
         # TODO(mlavalle): in the near future, this method should contain the

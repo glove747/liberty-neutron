@@ -386,14 +386,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         self.plugin_rpc.update_floatingip_statuses(
             self.context, ri.router_id, fip_statuses)
     #GL#   
-    def router_gateway_statuses(self, ri):
-        # get gate_way statuses        
-        namespace = SNAT_NS_PREFIX + ri.router_id
-        ns = ip_lib.IPWrapper(namespace=namespace)
-        if ns.netns.exists(namespace):
-            gateway_statuses = l3_constants.ROUTER_GATEWAY_STATUS_ACTIVE
-        else:
-            gateway_statuses = l3_constants.ROUTER_GATEWAY_STATUS_DOWN
+    def router_gateway_statuses(self, ri, gateway_statuses):
         LOG.debug('Sending router gateway statuses: %s', gateway_statuses)
         # Update floating IP status on the neutron server
         self.plugin_rpc.update_router_gateway_statuses(
