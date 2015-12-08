@@ -71,6 +71,8 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
                            prefix=router.EXTERNAL_DEV_PREFIX)
         self.snat_namespace.delete()
         self.snat_namespace = None
+        #GL#callback neutronserver
+        self.agent.router_gateway_statuses(self)
 
     def internal_network_added(self, port):
         super(DvrEdgeRouter, self).internal_network_added(port)
