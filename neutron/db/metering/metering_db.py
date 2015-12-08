@@ -341,14 +341,14 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         LOG.debug("GLOVE_labels: " + str(labels) + "END GLOVE")
         return self._process_sync_metering_data(context, labels)
     
-def _get_plugin(self, context, plugin):
+def _get_plugin(context, plugin):
     service_plugins = manager.NeutronManager.get_service_plugins()
     if plugin not in service_plugins:
         LOG.debug("Plugin could not be found: %s" , plugin)
         return None
     return service_plugins.get(plugin)
     
-def create_metering_label_and_rule_if_not_exist(self, context, metering_plugin, tenant_id, label_name, ip_prefix):
+def create_metering_label_and_rule_if_not_exist(context, metering_plugin, tenant_id, label_name, ip_prefix):
     labels = metering_plugin.get_metering_labels_by_name(context, label_name)
     if labels:
         return
@@ -360,13 +360,13 @@ def create_metering_label_and_rule_if_not_exist(self, context, metering_plugin, 
             metering_plugin.create_metering_label_rule(context, metering_label_rule)
           
 
-def delete_metering_label_and_rule_if_exist(self, context, metering_plugin, label_name):
+def delete_metering_label_and_rule_if_exist(context, metering_plugin, label_name):
     labels = metering_plugin.get_metering_labels_by_name(context, label_name)
     if labels:
         for label in labels:
             metering_plugin.delete_metering_label(context, label['id'])
 
-def _get_metering_label_dict(self, tenant_id, label_name):
+def _get_metering_label_dict(tenant_id, label_name):
     label = {}
     metering_label = {}
     label['shared'] = False
@@ -376,7 +376,7 @@ def _get_metering_label_dict(self, tenant_id, label_name):
     metering_label['metering_label'] = label
     return metering_label
 
-def _get_metering_label_rule_dict(self, ip_prefix, label):
+def _get_metering_label_rule_dict(ip_prefix, label):
     metering_label_rules = []
     directions = []
     directions.append('ingress')
