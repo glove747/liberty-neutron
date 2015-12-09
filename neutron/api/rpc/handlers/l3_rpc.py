@@ -238,11 +238,11 @@ class L3RpcCallback(object):
             if metering_plugin:
                 for fip_id in fip_statuses.keys():
                     fip = self.l3plugin.get_floatingip(context, fip_id)
-                    if fip_statuses == constants.FLOATINGIP_STATUS_ACTIVE:
+                    if fip_statuses[fip_id] == constants.FLOATINGIP_STATUS_ACTIVE:
                         metering_db.create_metering_label_and_rule_if_not_exist(context, metering_plugin,
                                                 fip['tenant_id'], fip['floating_ip_address'],
                                                 fip['floating_ip_address'])
-                    elif fip_statuses == constants.FLOATINGIP_STATUS_DOWN:
+                    elif fip_statuses[fip_id] == constants.FLOATINGIP_STATUS_DOWN:
                         metering_db.delete_metering_label_and_rule_if_exist(context,
                                                             metering_plugin, fip['floating_ip_address'])
          
