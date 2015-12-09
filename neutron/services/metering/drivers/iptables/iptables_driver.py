@@ -119,10 +119,12 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
 
         for router in routers:
             old_gw_port_id = None
+            gw_port_id = router['gw_port_id']
+            if not gw_port_id:
+                self.remove_router(context, router['id'])
             old_rm = self.routers.get(router['id'])
             if old_rm:
                 old_gw_port_id = old_rm.router['gw_port_id']
-            gw_port_id = router['gw_port_id']
 
             if gw_port_id != old_gw_port_id:
                 if old_rm:
@@ -250,19 +252,20 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
                 label_id = label['id']
                 if label_id not in rm.metering_labels:
                     continue
-
-                label_chain = iptables_manager.get_chain_name(WRAP_NAME +
-                                                              LABEL + label_id,
-                                                              wrap=False)
-                rules_chain = iptables_manager.get_chain_name(WRAP_NAME +
-                                                              RULE + label_id,
-                                                              wrap=False)
-
-                rm.iptables_manager.ipv4['filter'].remove_chain(label_chain,
-                                                                wrap=False)
-                rm.iptables_manager.ipv4['filter'].remove_chain(rules_chain,
-                                                                wrap=False)
-
+                try:
+                    label_chain = iptables_manager.get_chain_name(WRAP_NAME +
+                                                                  LABEL + label_id,
+                                                                  wrap=False)
+                    rules_chain = iptables_manager.get_chain_name(WRAP_NAME +
+                                                                  RULE + label_id,
+                                                                  wrap=False)
+    
+                    rm.iptables_manager.ipv4['filter'].remove_chain(label_chain,
+                                                                    wrap=False)
+                    rm.iptables_manager.ipv4['filter'].remove_chain(rules_chain,
+                                                                    wrap=False)
+                except Exception:
+                    LOG.debug('Ipbtabels disassociate metering failed!')
                 del rm.metering_labels[label_id]
 
     @log_helpers.log_method_call
@@ -272,7 +275,6 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
 
     @log_helpers.log_method_call
     def add_metering_label_rule(self, context, routers):
-        LOG.debug("GLOVE_server_routers: " + str(routers))
         for router in routers:
             self._add_metering_label_rule(router)
 
