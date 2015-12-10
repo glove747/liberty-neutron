@@ -229,6 +229,7 @@ class OvsAgentSchedulerTestCaseBase(test_l3.L3NatTestCaseMixin,
             service_plugins = {'l3_plugin_name': self.l3_plugin}
         else:
             service_plugins = None
+        mock.patch('neutron.common.rpc.get_client').start()
         super(OvsAgentSchedulerTestCaseBase, self).setUp(
             self.plugin_str, service_plugins=service_plugins)
         ext_mgr = extensions.PluginAwareExtensionManager.get_instance()
@@ -750,16 +751,20 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             self.assertFalse(ret_b)
 
     def test_router_is_not_rescheduled_from_dvr_agent(self):
-        router = {'name': 'router1',
-                  'admin_state_up': True,
-                  'distributed': True}
-        r = self.l3plugin.create_router(
-            self.adminContext, {'router': router})
-        dvr_agent = self._register_dvr_agents()[1]
+        with self.subnet() as s, \
+                mock.patch.object(
+                        self.l3plugin,
+                        'check_ports_exist_on_l3agent') as port_exists:
+            net_id = s['subnet']['network_id']
+            self._set_net_external(net_id)
+            router = {'name': 'router1',
+                      'admin_state_up': True,
+                      'external_gateway_info': {'network_id': net_id},
+                      'distributed': True}
+            r = self.l3plugin.create_router(
+                self.adminContext, {'router': router})
+            dvr_snat_agent, dvr_agent = self._register_dvr_agents()
 
-        with mock.patch.object(
-                self.l3plugin,
-                'check_ports_exist_on_l3agent') as port_exists:
             port_exists.return_value = True
             self.l3plugin.schedule_router(
                 self.adminContext, r['id'])
@@ -767,11 +772,66 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             self.assertEqual(2, len(agents['agents']))
             self.assertIn(dvr_agent['host'],
                           [a['host'] for a in agents['agents']])
+            # router should not be unscheduled from dvr agent
             self._take_down_agent_and_run_reschedule(dvr_agent['host'])
             agents = self._list_l3_agents_hosting_router(r['id'])
             self.assertEqual(2, len(agents['agents']))
             self.assertIn(dvr_agent['host'],
                           [a['host'] for a in agents['agents']])
+
+            # another dvr_snat agent is needed to test that router is not
+            # unscheduled from dead dvr agent in case rescheduling between
+            # dvr_snat agents happens
+            helpers.register_l3_agent(
+                host='hostC', agent_mode=constants.L3_AGENT_MODE_DVR_SNAT)
+            self._take_down_agent_and_run_reschedule(dvr_snat_agent['host'])
+            agents = self._list_l3_agents_hosting_router(r['id'])
+            self.assertEqual(2, len(agents['agents']))
+            self.assertIn(dvr_agent['host'],
+                          [a['host'] for a in agents['agents']])
+
+    def test_router_reschedule_succeeded_after_failed_notification(self):
+        l3_plugin = (manager.NeutronManager.get_service_plugins()
+                     [service_constants.L3_ROUTER_NAT])
+        l3_notifier = l3_plugin.agent_notifiers[constants.AGENT_TYPE_L3]
+        l3_rpc_cb = l3_rpc.L3RpcCallback()
+        self._register_agent_states()
+        with self.router() as router:
+            # schedule the router to host A
+            l3_rpc_cb.sync_routers(self.adminContext, host=L3_HOSTA)
+            with mock.patch.object(
+                    l3_notifier, 'router_added_to_agent') as notification_mock:
+                notification_mock.side_effect = [
+                    oslo_messaging.MessagingTimeout, None]
+                self._take_down_agent_and_run_reschedule(L3_HOSTA)
+                self.assertEqual(
+                    2, l3_notifier.router_added_to_agent.call_count)
+                # make sure router was rescheduled even when first attempt
+                # failed to notify l3 agent
+                l3_agents = self._list_l3_agents_hosting_router(
+                    router['router']['id'])['agents']
+                self.assertEqual(1, len(l3_agents))
+                self.assertEqual(L3_HOSTB, l3_agents[0]['host'])
+
+    def test_router_reschedule_failed_notification_all_attempts(self):
+        l3_plugin = (manager.NeutronManager.get_service_plugins()
+                     [service_constants.L3_ROUTER_NAT])
+        l3_notifier = l3_plugin.agent_notifiers[constants.AGENT_TYPE_L3]
+        l3_rpc_cb = l3_rpc.L3RpcCallback()
+        self._register_agent_states()
+        with self.router() as router:
+            # schedule the router to host A
+            l3_rpc_cb.sync_routers(self.adminContext, host=L3_HOSTA)
+            with mock.patch.object(
+                    l3_notifier, 'router_added_to_agent') as notification_mock:
+                notification_mock.side_effect = oslo_messaging.MessagingTimeout
+                self._take_down_agent_and_run_reschedule(L3_HOSTA)
+                self.assertEqual(
+                    l3_agentschedulers_db.AGENT_NOTIFY_MAX_ATTEMPTS,
+                    l3_notifier.router_added_to_agent.call_count)
+                l3_agents = self._list_l3_agents_hosting_router(
+                    router['router']['id'])['agents']
+                self.assertEqual(0, len(l3_agents))
 
     def test_router_auto_schedule_with_invalid_router(self):
         with self.router() as router:
@@ -1494,7 +1554,7 @@ class OvsL3AgentNotifierTestCase(test_l3.L3NatTestCaseMixin,
             l3_notifier.client,
             'prepare',
             return_value=l3_notifier.client) as mock_prepare,\
-                mock.patch.object(l3_notifier.client, 'cast') as mock_cast,\
+                mock.patch.object(l3_notifier.client, 'call') as mock_call,\
                 self.router() as router1:
             self._register_agent_states()
             hosta_id = self._get_agent_id(constants.AGENT_TYPE_L3,
@@ -1503,7 +1563,7 @@ class OvsL3AgentNotifierTestCase(test_l3.L3NatTestCaseMixin,
                                          router1['router']['id'])
             routers = [router1['router']['id']]
             mock_prepare.assert_called_with(server='hosta')
-            mock_cast.assert_called_with(
+            mock_call.assert_called_with(
                 mock.ANY, 'router_added_to_agent', payload=routers)
             notifications = fake_notifier.NOTIFICATIONS
             expected_event_type = 'l3_agent.router.add'
@@ -1518,6 +1578,7 @@ class OvsL3AgentNotifierTestCase(test_l3.L3NatTestCaseMixin,
             'prepare',
             return_value=l3_notifier.client) as mock_prepare,\
                 mock.patch.object(l3_notifier.client, 'cast') as mock_cast,\
+                mock.patch.object(l3_notifier.client, 'call'),\
                 self.router() as router1:
             self._register_agent_states()
             hosta_id = self._get_agent_id(constants.AGENT_TYPE_L3,

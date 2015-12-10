@@ -138,8 +138,12 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
         int_ports = self._core_plugin.get_ports(context, filters=filter_rtr)
         for int_port in int_ports:
             int_ips = int_port['fixed_ips']
-            int_subnet = int_ips[0]['subnet_id']
-            subnet_ids.add(int_subnet)
+            if int_ips:
+                int_subnet = int_ips[0]['subnet_id']
+                subnet_ids.add(int_subnet)
+            else:
+                LOG.debug('DVR: Could not find a subnet id'
+                          'for router %s', router_id)
         return subnet_ids
 
     def check_ports_on_host_and_subnet(self, context, host,
@@ -382,42 +386,14 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                 context, router_id, chosen_agent)
             return chosen_agent
 
-    def reschedule_router(self, context, router_id, candidates=None):
-        """Reschedule router to new l3 agents
-
-        Remove the router from l3 agents currently hosting it and
-        schedule it again
-        """
+    def _unschedule_router(self, context, router_id, agents_ids):
         router = self.get_router(context, router_id)
-        is_distributed = router.get('distributed', False)
-        if not is_distributed:
-            return super(L3_DVRsch_db_mixin, self).reschedule_router(
-                context, router_id, candidates)
-
-        old_agents = self.list_l3_agents_hosting_router(
-            context, router_id)['agents']
-        with context.session.begin(subtransactions=True):
-            for agent in old_agents:
-                self._unbind_router(context, router_id, agent['id'])
-                self.unbind_snat_servicenode(context, router_id)
-
-            self.schedule_router(context, router_id, candidates=candidates)
-            new_agents = self.list_l3_agents_hosting_router(
-                context, router_id)['agents']
-            if not new_agents:
-                raise l3agentscheduler.RouterReschedulingFailed(
-                    router_id=router_id)
-
-        l3_notifier = self.agent_notifiers.get(n_const.AGENT_TYPE_L3)
-        if l3_notifier:
-            old_hosts = [agent['host'] for agent in old_agents]
-            new_hosts = [agent['host'] for agent in new_agents]
-            for host in set(old_hosts) - set(new_hosts):
-                l3_notifier.router_removed_from_agent(
-                    context, router_id, host)
-            for host in new_hosts:
-                l3_notifier.router_added_to_agent(
-                    context, [router_id], host)
+        if router.get('distributed', False):
+            # for DVR router unscheduling means just unscheduling SNAT portion
+            self.unbind_snat_servicenode(context, router_id)
+        else:
+            super(L3_DVRsch_db_mixin, self)._unschedule_router(
+                context, router_id, agents_ids)
 
     def _get_active_l3_agent_routers_sync_data(self, context, host, agent,
                                                router_ids):
