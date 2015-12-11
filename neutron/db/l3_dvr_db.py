@@ -533,7 +533,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                     return
 
     def create_fip_agent_gw_port_if_not_exists(
-        self, context, network_id, host, shared):
+        self, context, network_id, host, shared=True):
         """Function to return the FIP Agent GW port.
 
         This function will create a FIP Agent GW port
