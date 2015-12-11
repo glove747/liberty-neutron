@@ -581,7 +581,6 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                     return shared_port
             else:
                 if f_port:
-                    self._populate_subnets_for_ports(context, [f_port])
                     return f_port
             msg = _("Unable to create the Agent Gateway Port")
             raise n_exc.BadRequest(resource='router', msg=msg)
