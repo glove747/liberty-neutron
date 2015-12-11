@@ -266,9 +266,10 @@ class L3RpcCallback(object):
         """
         network_id = kwargs.get('network_id')
         host = kwargs.get('host')
+        shared = kwargs.get('shared')
         admin_ctx = neutron_context.get_admin_context()
         agent_port = self.l3plugin.create_fip_agent_gw_port_if_not_exists(
-            admin_ctx, network_id, host)
+            admin_ctx, network_id, host, shared)
         self._ensure_host_set_on_port(admin_ctx, host, agent_port)
         LOG.debug('Agent Gateway port returned : %(agent_port)s with '
                   'host %(host)s', {'agent_port': agent_port,

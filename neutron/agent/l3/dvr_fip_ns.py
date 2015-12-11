@@ -131,14 +131,16 @@ class FipNamespace(namespaces.Namespace):
         ip_wrapper = ip_lib.IPWrapper(namespace=ns_name)
         ip_wrapper.netns.execute(cmd, check_exit_code=False)
 
-    def _gateway_added(self, ex_gw_port, interface_name):
+    def _gateway_added(self, ex_gw_port, interface_name, fip_agent_port_priv):
         """Add Floating IP gateway port."""
         LOG.debug("add gateway interface(%s)", interface_name)
         ns_name = self.get_name()
+        mac_address = fip_agent_port_priv['mac_address']
+        LOG.debug("fip_agent_port_priv mac_address(%s)", mac_address)
         self.driver.plug(ex_gw_port['network_id'],
                          ex_gw_port['id'],
                          interface_name,
-                         ex_gw_port['mac_address'],
+                         mac_address,
                          bridge=self.agent_conf.external_network_bridge,
                          namespace=ns_name,
                          prefix=FIP_EXT_DEV_PREFIX)
@@ -152,14 +154,14 @@ class FipNamespace(namespaces.Namespace):
                                           interface_name,
                                           fixed_ip['ip_address'],
                                           self.agent_conf)
-        ipd = ip_lib.IPDevice(interface_name, namespace=ns_name)
-        gateway = ipd.route.get_gateway()
-        LOG.debug("DVR: gateway exist: %s", gateway)
-        if not gateway:
-            for subnet in ex_gw_port['subnets']:
-                gw_ip = subnet.get('gateway_ip')
-                if gw_ip:
-                    ipd.route.add_gateway(gw_ip)
+        # ipd = ip_lib.IPDevice(interface_name, namespace=ns_name)
+        # gateway = ipd.route.get_gateway()
+        # LOG.debug("DVR: gateway exist: %s", gateway)
+        # if not gateway:
+        #     for subnet in ex_gw_port['subnets']:
+        #         gw_ip = subnet.get('gateway_ip')
+        #         if gw_ip:
+        #             ipd.route.add_gateway(gw_ip)
 
         cmd = ['sysctl', '-w', 'net.ipv4.conf.%s.proxy_arp=1' % interface_name]
         # TODO(Carl) mlavelle's work has self.ip_wrapper
@@ -231,7 +233,7 @@ class FipNamespace(namespaces.Namespace):
         iface_name = self.get_ext_device_name(agent_gateway_port['id'])
         self._gateway_updated(agent_gateway_port, iface_name)
 
-    def create_gateway_port(self, agent_gateway_port):
+    def create_gateway_port(self, agent_gateway_port, fip_agent_port_priv):
         """Create Floating IP gateway port.
 
            Request port creation from Plugin then creates
@@ -242,7 +244,7 @@ class FipNamespace(namespaces.Namespace):
         self.create()
 
         iface_name = self.get_ext_device_name(agent_gateway_port['id'])
-        self._gateway_added(agent_gateway_port, iface_name)
+        self._gateway_added(agent_gateway_port, iface_name, fip_agent_port_priv)
 
     def _internal_ns_interface_added(self, ip_cidr,
                                     interface_name, ns_name):

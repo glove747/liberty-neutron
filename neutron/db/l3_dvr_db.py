@@ -533,7 +533,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                     return
 
     def create_fip_agent_gw_port_if_not_exists(
-        self, context, network_id, host):
+        self, context, network_id, host, shared):
         """Function to return the FIP Agent GW port.
 
         This function will create a FIP Agent GW port
@@ -559,7 +559,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                              'admin_state_up': True,
                              'name': '',
                              'fixed_ips': []}
-                p_utils.create_port(self._core_plugin, context,
+                f_port = p_utils.create_port(self._core_plugin, context,
                                     {'port': port_data})
 
             shared_port = self._get_agent_gw_ports_exist_for_network(
@@ -575,9 +575,14 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                 shared_port = p_utils.create_port(self._core_plugin,
                                                   context,
                                                   {'port': port_data})
-            if shared_port:
-                self._populate_subnets_for_ports(context, [shared_port])
-                return shared_port
+            if shared:
+                if shared_port:
+                    self._populate_subnets_for_ports(context, [shared_port])
+                    return shared_port
+            else:
+                if f_port:
+                    self._populate_subnets_for_ports(context, [f_port])
+                    return f_port
             msg = _("Unable to create the Agent Gateway Port")
             raise n_exc.BadRequest(resource='router', msg=msg)
 

@@ -121,29 +121,27 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                     gateway = ipd.route.get_gateway()
                     if gateway:
                         gateway = gateway.get('gateway')
-                        fip_subnets = filter(lambda x: x['id'] == fip_subnet_id,
-                                             fip_agent_port['subnets'])
-                        if fip_subnets and len(fip_subnets) == 1:
-                            fip_gw_ip = fip_subnets[0].get('gateway_ip')
-                            if fip_gw_ip != gateway:
-                                rule_table = self.fip_ns.rule_table_allocate \
-                                    (fip_subnet_id)
-                                ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
-                                ip_rule.rule.add(ip=floating_ip,
-                                                 table=rule_table,
-                                                 priority=rule_pr)
-                                fip_fg_name = self.fip_ns.get_ext_device_name \
-                                    (fip_agent_port['id'])
-                                device = ip_lib.IPDevice(fip_fg_name,
-                                                         namespace=fip_ns_name)
-                                device.route.add_gateway(fip_gw_ip,
-                                                         table=rule_table)
-                        else:
-                            LOG.error('Fip_subnets found not single '
-                                      'fip_agent_port: %s, fip_subnet_id: %s.',
-                                      fip_agent_port['subnets'], fip_subnet_id)
+                    fip_subnets = filter(lambda x: x['id'] == fip_subnet_id,
+                                         fip_agent_port['subnets'])
+                    if fip_subnets and len(fip_subnets) == 1:
+                        fip_gw_ip = fip_subnets[0].get('gateway_ip')
+                        if fip_gw_ip != gateway:
+                            rule_table = self.fip_ns.rule_table_allocate \
+                                (fip_subnet_id)
+                            ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+                            ip_rule.rule.add(ip=floating_ip,
+                                             table=rule_table,
+                                             priority=rule_pr)
+                            fip_fg_name = self.fip_ns.get_ext_device_name \
+                                (fip_agent_port['id'])
+                            device = ip_lib.IPDevice(fip_fg_name,
+                                                     namespace=fip_ns_name)
+                            device.route.add_gateway(fip_gw_ip,
+                                                     table=rule_table)
                     else:
-                        LOG.error('Gateway not found from %s.', interface_name)
+                        LOG.error('Fip_subnets found not single '
+                                  'fip_agent_port: %s, fip_subnet_id: %s.',
+                                  fip_agent_port['subnets'], fip_subnet_id)
                 else:
                     LOG.error(_LE("No FloatingIP agent gateway port "
                                   "returned from server for 'network-id': %s"),
@@ -544,7 +542,14 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 if 'subnets' not in fip_agent_port:
                     LOG.error(_LE('Missing subnet/agent_gateway_port'))
                 else:
-                    self.fip_ns.create_gateway_port(fip_agent_port)
+                    fip_agent_port_priv = self.agent.plugin_rpc.\
+                        get_agent_gateway_port( self.agent.context,
+                                                ex_gw_port['network_id'],
+                                                shared=False)
+                    LOG.debug("fip_agent_port_priv received from the plugin: %s"
+                              , fip_agent_port_priv)
+                    self.fip_ns.create_gateway_port(fip_agent_port,
+                                                    fip_agent_port_priv)
 
             if (self.fip_ns.agent_gateway_port and
                     (self.dist_fip_count == 0 or is_first)):
