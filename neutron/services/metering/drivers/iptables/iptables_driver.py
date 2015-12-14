@@ -25,7 +25,7 @@ from neutron.common import constants as constants
 from neutron.common import ipv6_utils
 from neutron.i18n import _LE, _LI
 from neutron.services.metering.drivers import abstract_driver
-
+from neutron.agent.linux import ip_lib
 
 LOG = logging.getLogger(__name__)
 NS_PREFIX = 'qrouter-'
@@ -143,14 +143,17 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     def get_external_device_name(self, port_id):
         return (EXTERNAL_DEV_PREFIX + port_id)[:self.driver.DEV_NAME_LEN]
 
-    def get_dvr_fg_device_name(self, port_id):
-        return (DVR_EXTERNAL_DEV_PREFIX + port_id)[:self.driver.DEV_NAME_LEN]
+    def get_dvr_fg_device_name(self, namespace):
+        ip_wrapper = ip_lib.IPWrapper(namespace=namespace)
+        for d in ip_wrapper.get_devices(exclude_loopback=True):
+            if d.name.startswith(DVR_EXTERNAL_DEV_PREFIX):
+                return d.name
  
     def _process_metering_label_rules(self, rm, rules, label_chain,
                                       rules_chain):
         im = rm.iptables_manager
         if rm.router['node_type'] == "compute":
-            ext_dev = self.get_dvr_fg_device_name(rm.router['fg_port']['id'])
+            ext_dev = self.get_dvr_fg_device_name(rm.ns_name)
         else:
             ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
         if not ext_dev:
