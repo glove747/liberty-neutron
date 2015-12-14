@@ -123,11 +123,11 @@ class L3PluginApi(object):
         return cctxt.call(context, 'get_port_by_floatingip', host=self.host,
                           floating_ip=floating_ip)
 
-    def get_agent_gateway_port(self, context, fip_net, shared=True):
+    def get_agent_gateway_port(self, context, fip_net):
         """Get or create an agent_gateway_port."""
         cctxt = self.client.prepare(version='1.2')
         return cctxt.call(context, 'get_agent_gateway_port',
-                          network_id=fip_net, host=self.host, shared=shared)
+                          network_id=fip_net, host=self.host)
 
     def get_service_plugin_list(self, context):
         """Make a call to get the list of activated services."""

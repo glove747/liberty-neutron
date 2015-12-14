@@ -448,8 +448,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         """Filter Floating Agent GW port for the external network."""
         fip_ports = self.router.get(l3_constants.FLOATINGIP_AGENT_INTF_KEY, [])
         return next(
-            (p for p in fip_ports if p['network_id'] == ext_net_id and
-             p['device_owner'] == l3_constants.DEVICE_OWNER_AGENT_GW_SHARED),
+            (p for p in fip_ports if p['network_id'] == ext_net_id),
             None)
 
     def get_external_device_interface_name(self, ex_gw_port):
@@ -542,14 +541,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 if 'subnets' not in fip_agent_port:
                     LOG.error(_LE('Missing subnet/agent_gateway_port'))
                 else:
-                    fip_agent_port_priv = self.agent.plugin_rpc.\
-                        get_agent_gateway_port( self.agent.context,
-                                                ex_gw_port['network_id'],
-                                                shared=False)
-                    LOG.debug("fip_agent_port_priv received from the plugin: %s"
-                              , fip_agent_port_priv)
-                    self.fip_ns.create_gateway_port(fip_agent_port,
-                                                    fip_agent_port_priv)
+                    self.fip_ns.create_gateway_port(fip_agent_port)
 
             if (self.fip_ns.agent_gateway_port and
                     (self.dist_fip_count == 0 or is_first)):

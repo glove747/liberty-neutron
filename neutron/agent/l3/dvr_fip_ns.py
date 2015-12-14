@@ -131,16 +131,14 @@ class FipNamespace(namespaces.Namespace):
         ip_wrapper = ip_lib.IPWrapper(namespace=ns_name)
         ip_wrapper.netns.execute(cmd, check_exit_code=False)
 
-    def _gateway_added(self, ex_gw_port, interface_name, fip_agent_port_priv):
+    def _gateway_added(self, ex_gw_port, interface_name):
         """Add Floating IP gateway port."""
         LOG.debug("add gateway interface(%s)", interface_name)
         ns_name = self.get_name()
-        mac_address = fip_agent_port_priv['mac_address']
-        LOG.debug("fip_agent_port_priv mac_address(%s)", mac_address)
         self.driver.plug(ex_gw_port['network_id'],
                          ex_gw_port['id'],
                          interface_name,
-                         mac_address,
+                         ex_gw_port['mac_address'],
                          bridge=self.agent_conf.external_network_bridge,
                          namespace=ns_name,
                          prefix=FIP_EXT_DEV_PREFIX)
@@ -233,7 +231,7 @@ class FipNamespace(namespaces.Namespace):
         iface_name = self.get_ext_device_name(agent_gateway_port['id'])
         self._gateway_updated(agent_gateway_port, iface_name)
 
-    def create_gateway_port(self, agent_gateway_port, fip_agent_port_priv):
+    def create_gateway_port(self, agent_gateway_port):
         """Create Floating IP gateway port.
 
            Request port creation from Plugin then creates
@@ -244,7 +242,7 @@ class FipNamespace(namespaces.Namespace):
         self.create()
 
         iface_name = self.get_ext_device_name(agent_gateway_port['id'])
-        self._gateway_added(agent_gateway_port, iface_name, fip_agent_port_priv)
+        self._gateway_added(agent_gateway_port, iface_name)
 
     def _internal_ns_interface_added(self, ip_cidr,
                                     interface_name, ns_name):
