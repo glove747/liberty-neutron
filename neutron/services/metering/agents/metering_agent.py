@@ -188,7 +188,6 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
     @periodic_task.periodic_task(run_immediately=True)
     def _sync_routers_task(self, context):
         routers = self._get_sync_data_metering(self.context)
-        LOG.debug("GLOVE routers: "+str(routers))
         if not routers:
             return
         self._update_routers(context, routers)
@@ -213,7 +212,6 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         for router in routers:
             self.routers[router['id']] = router
         routers_list = self._update_routers_by_host_and_node_type(routers)
-        LOG.debug("GLOVE_routers_list: "+str(routers_list))
         return self._invoke_driver(context, routers_list,
                                    'update_routers')
 
@@ -223,7 +221,6 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
 
     def add_metering_label_rule(self, context, routers):
         routers_list = self._update_routers_by_host_and_node_type(routers)
-        LOG.debug("GLOVE_routers_list: " +str(routers_list))
         return self._invoke_driver(context, routers_list,
                                    'add_metering_label_rule')
 

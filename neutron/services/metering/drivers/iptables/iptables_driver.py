@@ -71,7 +71,7 @@ class RouterWithMetering(object):
     def __init__(self, conf, router):
         self.conf = conf
         if router['node_type'] == "compute":
-            ex_net_id = router['fg_port']['network_id']
+            ex_net_id = router['ex_net_id']
             self.ns_name = DVR_NS_PREFIX + ex_net_id if conf.use_namespaces else None
         elif router['node_type'] == "network":
             router_id = router['id']
@@ -104,6 +104,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     def _update_router(self, router):
         r = self.routers.get(router['id'],
                              RouterWithMetering(self.conf, router))
+        gw_port_id = router['gw_port_id']
         r.router = router
         self.routers[r.id] = r
 
@@ -301,7 +302,6 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
         rm = self.routers.get(router['id'])
         if not rm:
             return
-        LOG.debug("GLOVE_ROUTER: " +str(router))
         if router['node_type'] == "compute":
             ext_dev = self.get_dvr_fg_device_name(router['fg_port']['id'])
         else:

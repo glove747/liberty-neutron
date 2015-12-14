@@ -257,7 +257,7 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                 plugin_constants.L3_ROUTER_NAT]
         return self._l3plugin
     
-    def _get_label_host_and_fg_port(self, context, label):
+    def _get_label_host(self, context, label):
         hostid = ''
         fip = label['name']
         fip_port = self.get_port_by_floatingip(context, floating_ip=fip)
@@ -267,15 +267,16 @@ class MeteringDbMixin(metering.MeteringPluginBase,
             if fixed_port_id:
                 vm_port_db = self._core_plugin.get_port(context, fixed_port_id)
                 hostid = vm_port_db[portbindings.HOST_ID] if vm_port_db else ""
-        fg_port = self.get_fg_port_by_owner(context,
-                                  device_owner=constants.DEVICE_OWNER_AGENT_GW_SHARED)
-        return hostid, fg_port
+        return hostid
+    
+    def _get_ex_net_id(self, context, router):
+        gw_port_port = self._core_plugin.get_port(context.elevated(), router['gw_port_id'])
+        return gw_port_port['network_id']
 
     def _process_sync_metering_data(self, context, labels):
         all_routers = None
         routers_dict = {}
         hostid = ''
-        fg_port = {}
         for label in labels:
             if label.shared:
                 if not all_routers:
@@ -286,19 +287,18 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                 routers = label.routers
             if cfg.CONF.router_distributed:
                 try:
-                    hostid, fg_port = self._get_label_host_and_fg_port(context, label)
+                    hostid = self._get_label_host(context, label)
                 except Exception:
                     LOG.error("TCLOUD metering-agent process sync metering data failed in dvr mode.")
             for router in routers:
                 router_dict = routers_dict.get(
                     router['id'],
                     self._make_router_dict(router))
-
                 rules = self._get_metering_rules_dict(label)
                 data = {'id': label['id'], 'name': label.name, 'host': hostid, 'rules': rules}
-                router_dict['fg_port'] = fg_port   
                 router_dict[constants.METERING_LABEL_KEY].append(data)
-                LOG.debug("TCLOUD_router_dict: " + str(router_dict))
+                ex_net_id = self._get_ex_net_id(context, router)
+                router_dict['ex_net_id'] = ex_net_id
                 routers_dict[router['id']] = router_dict
         return list(routers_dict.values())
 
@@ -306,14 +306,13 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         label = context.session.query(MeteringLabel).get(
             rule['metering_label_id'])
         hostid = ''
-        fg_port = {}
         if label.shared:
             routers = self._get_collection_query(context, l3_db.Router)
         else:
             routers = label.routers
         if cfg.CONF.router_distributed:
                 try:
-                    hostid, fg_port = self._get_label_host_and_fg_port(context, label)
+                    hostid = self._get_label_host(context, label)
                 except Exception:
                     LOG.error("TCLOUD metering-agent process sync metering rule data failed in dvr mode.")
         routers_dict = {}
@@ -321,7 +320,6 @@ class MeteringDbMixin(metering.MeteringPluginBase,
             router_dict = routers_dict.get(router['id'],
                                            self._make_router_dict(router))
             data = {'id': label['id'], 'name': label.name, 'host': hostid, 'rule': rule}
-            router_dict['fg_port'] = fg_port
             router_dict[constants.METERING_LABEL_KEY].append(data)
             routers_dict[router['id']] = router_dict
 
@@ -335,7 +333,6 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         elif router_ids:
             labels = (labels.join(MeteringLabel.routers).
                       filter(l3_db.Router.id.in_(router_ids)))
-        LOG.debug("GLOVE_labels: " + str(labels) + "END GLOVE")
         return self._process_sync_metering_data(context, labels)
     
 def _get_plugin(context, plugin):
