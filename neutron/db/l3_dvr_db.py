@@ -34,6 +34,7 @@ from neutron.extensions import l3
 from neutron.extensions import portbindings
 from neutron.i18n import _LI
 from neutron import manager
+from neutron.plugins.common import constants
 from neutron.plugins.common import utils as p_utils
 
 
