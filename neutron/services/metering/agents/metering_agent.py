@@ -127,7 +127,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         for label_id in label_ids:
             del self.metering_infos[label_id]
 
-    def _add_metering_info(self, label_id, pkts, bytes):
+    def _add_metering_info(self, label_id, pkts, bytes, tenant_id):
         ts = int(time.time())
         info = self.metering_infos.get(label_id, {'bytes': 0,
                                                   'pkts': 0,
@@ -136,6 +136,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                                                   'last_update': ts})
         info['bytes'] += bytes
         info['pkts'] += pkts
+        info['tenant_id'] = tenant_id
         info['time'] += ts - info['last_update']
         info['last_update'] = ts
 
@@ -158,7 +159,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
             return
 
         for label_id, acc in accs.items():
-            self._add_metering_info(label_id, acc['pkts'], acc['bytes'])
+            self._add_metering_info(label_id, acc['pkts'], acc['bytes'], acc['tenant_id'])
 
     def _metering_loop(self):
         self._add_metering_infos()
