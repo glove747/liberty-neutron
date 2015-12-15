@@ -272,7 +272,8 @@ class MeteringDbMixin(metering.MeteringPluginBase,
     def _get_ex_net_id(self, context, router):
         gw_port_id = router['gw_port_id']
         if gw_port_id:
-            return self._core_plugin.get_port(context.elevated(), router['gw_port_id'])
+            gw_port = self._core_plugin.get_port(context.elevated(), router['gw_port_id'])
+            return gw_port['network_id']
         else:
             return None
     def _process_sync_metering_data(self, context, labels):

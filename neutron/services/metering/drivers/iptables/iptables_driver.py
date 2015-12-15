@@ -303,7 +303,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
         if not rm:
             return
         if router['node_type'] == "compute":
-            ext_dev = self.get_dvr_fg_device_name(router['fg_port']['id'])
+            ext_dev = self.get_dvr_fg_device_name(rm.ns_name)
         else:
             ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
         if not ext_dev:
@@ -388,5 +388,6 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
 
                 #acc = accs.get(label_id, {'pkts': 0, 'bytes': 0})
                 for acc in chain_acc_list:
+                    acc['tenant_id'] = router['tenant_id']
                     accs[label['name'] + '_' + acc['direction']] = acc               
         return accs

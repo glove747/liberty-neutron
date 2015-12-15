@@ -101,9 +101,9 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
             self.conf.driver, self, self.conf)
 
     def _metering_notification(self):
-        for label_id, info in self.metering_infos.items():
-            data = {'label_id': label_id,
-                    'tenant_id': self.label_tenant_id.get(label_id),
+        for reousrce_id, info in self.metering_infos.items():
+            data = {'label_id': reousrce_id ,
+                    'tenant_id': info['tenant_id'],
                     'pkts': info['pkts'],
                     'bytes': info['bytes'],
                     'time': info['time'],
