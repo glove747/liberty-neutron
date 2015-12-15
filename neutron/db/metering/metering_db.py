@@ -323,6 +323,8 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                                            self._make_router_dict(router))
             data = {'id': label['id'], 'name': label.name, 'host': hostid, 'rule': rule}
             router_dict[constants.METERING_LABEL_KEY].append(data)
+            ex_net_id = self._get_ex_net_id(context, router)
+            router_dict['ex_net_id'] = ex_net_id
             routers_dict[router['id']] = router_dict
 
         return list(routers_dict.values())
