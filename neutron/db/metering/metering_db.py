@@ -270,13 +270,9 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         return hostid
     
     def _get_ex_net_id(self, context, router):
-        gw_port_port = None
-        try:
-            gw_port_port = self._core_plugin.get_port(context.elevated(), router['gw_port_id'])
-        except Exception:
-            LOG.debug("router %s get gw port failed." , router['id'])
-        if gw_port_port:
-            return gw_port_port['network_id']
+        gw_port_id = router['gw_port_id']
+        if gw_port_id:
+            return self._core_plugin.get_port(context.elevated(), router['gw_port_id'])
         else:
             return None
     def _process_sync_metering_data(self, context, labels):
