@@ -544,6 +544,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                 context, network_id, host, None,
                 device_owner=l3_const.DEVICE_OWNER_AGENT_GW_SHARED)
             if not shared_port:
+                LOG.info(_LI('Agent Gateway port shared does not exist,'
+                             ' so create one: %s'), shared_port)
                 port_data = {'tenant_id': '',
                              'network_id': network_id,
                              'device_owner':
@@ -558,7 +560,6 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             if not f_port:
                 LOG.info(_LI('Agent Gateway port does not exist,'
                              ' so create one: %s'), f_port)
-                # TODO(nanzhang) Compatible for future
                 port_data = {'tenant_id': '',
                              'network_id': network_id,
                              'device_id': l3_agent_db['id'],
@@ -569,8 +570,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                              'fixed_ips': []}
                 f_port = p_utils.create_port(self._core_plugin, context,
                                     {'port': port_data})
-            f_port['fixed_ips'] = shared_port['fixed_ips']
             if f_port:
+                f_port['fixed_ips'] = shared_port['fixed_ips']
                 self._populate_subnets_for_ports(context, [f_port])
                 return f_port
             msg = _("Unable to create the Agent Gateway Port")
