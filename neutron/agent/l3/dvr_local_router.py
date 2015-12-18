@@ -22,6 +22,7 @@ import six
 from neutron.agent.l3 import dvr_fip_ns
 from neutron.agent.l3 import dvr_router_base
 from neutron.agent.linux import ip_lib
+from neutron.agent.linux.ip_lib import get_ip_version
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions
 from neutron.common import utils as common_utils
@@ -97,12 +98,12 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         # update internal structures
         self.dist_fip_count = self.dist_fip_count + 1
 
-        # Add routing rule to different subnets's fip
+        # Add rule to different subnets
         try:
             LOG.debug("DVR: add fipns subnets's rule, fip: %s", fip)
             fip_port = self.agent.get_port_by_floatingip(floating_ip)
             LOG.debug("DVR: add fipns subnets's rule, fip_port: %s", fip_port)
-            if fip_port:
+            if fip_port and fip_port['fixed_ips']:
                 fip_subnet_id = fip_port['fixed_ips'][0]['subnet_id']
                 ex_gw_port = self.get_ex_gw_port()
                 fip_agent_port = self.get_floating_agent_gw_interface(
@@ -117,27 +118,29 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                         get_agent_gateway_port(self.agent.context,
                                                ex_gw_port['network_id'])
                 if fip_agent_port:
-                    ipd = ip_lib.IPDevice(interface_name, namespace=fip_ns_name)
-                    gateway = ipd.route.get_gateway()
-                    if gateway:
-                        gateway = gateway.get('gateway')
                     fip_subnets = filter(lambda x: x['id'] == fip_subnet_id,
                                          fip_agent_port['subnets'])
                     if fip_subnets and len(fip_subnets) == 1:
-                        fip_gw_ip = fip_subnets[0].get('gateway_ip')
-                        if fip_gw_ip != gateway:
-                            rule_table = self.fip_ns.rule_table_allocate \
-                                (fip_subnet_id)
-                            ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
-                            ip_rule.rule.add(ip=floating_ip,
-                                             table=rule_table,
-                                             priority=rule_pr)
-                            fip_fg_name = self.fip_ns.get_ext_device_name \
-                                (fip_agent_port['id'])
+                        rules = ip_rule.rule. \
+                            list_rules(get_ip_version(fip_cidr))
+                        LOG.debug("DVR: rules: %s", rules)
+                        contains = filter(lambda x: x['from'] == fip_cidr,
+                                          rules)
+                        if not any(contains):
+                            rule_table = self.fip_ns.\
+                                rule_table_allocate(fip_subnet_id)
+                            fip_fg_name = self.fip_ns.\
+                                get_ext_device_name(fip_agent_port['id'])
                             device = ip_lib.IPDevice(fip_fg_name,
                                                      namespace=fip_ns_name)
+                            fip_gw_ip = fip_subnets[0].get('gateway_ip')
                             device.route.add_gateway(fip_gw_ip,
                                                      table=rule_table)
+                            ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+                            ip_rule.rule.add(ip=fip_cidr,
+                                             table=rule_table,
+                                             priority=rule_table)
+
                     else:
                         LOG.error('Fip_subnets found not single '
                                   'fip_agent_port: %s, fip_subnet_id: %s.',
@@ -171,68 +174,69 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             ip_rule.rule.delete(ip=floating_ip,
                                 table=dvr_fip_ns.FIP_RT_TBL,
                                 priority=rule_pr)
-            # del fip rule and rule table
-            try:
-                LOG.debug("DVR: del fipns subnets's rule, fip_cidr: %s",
-                          fip_cidr)
-                fip_port = self.agent.get_port_by_floatingip(floating_ip)
-                LOG.debug("DVR: del fipns subnets's rule, fip_port: %s",
-                          fip_port)
-                if fip_port:
-                    from neutron.agent.linux.ip_lib import \
-                                    get_ip_version
-                    ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
-                    rules = ip_rule.rule.\
-                        list_rules(get_ip_version(floating_ip))
-                    LOG.debug("DVR: rules: %s", rules)
-                    to_delete_rules = filter(lambda x: x['from'] == floating_ip,
-                                             rules)
-                    if len(to_delete_rules) > 0:
-                        rule_pr = self.floating_ips_dict[floating_ip]
-                        ip_rule.rule.delete(ip=floating_ip,
-                                            table=to_delete_rules[0]['table'],
-                                            priority=rule_pr)
-
-                    ex_gw_port = self.get_ex_gw_port()
-                    fip_agent_port = self.get_floating_agent_gw_interface(
-                        ex_gw_port['network_id'])
-                    if not fip_agent_port:
-                        LOG.debug(
-                            "No FloatingIP agent gateway port possibly due to "
-                            "late binding of the private port to the host, "
-                            "requesting agent gateway port for 'network-id' :"
-                            "%s", ex_gw_port['network_id'])
-                        fip_agent_port = self.agent. \
-                            plugin_rpc. \
-                            get_agent_gateway_port(self.agent.context,
-                                                   ex_gw_port['network_id'])
-                    if fip_agent_port:
-                        subnets = [subnet['id'] for subnet in
-                                   fip_agent_port['subnets']]
-                        LOG.debug('Subnets: %s, rule_table_keys: %s',
-                                  subnets,
-                                  self.fip_ns.rule_table_keys())
-                        rule_table_keys = self.fip_ns.rule_table_keys()
-                        for subnet_id in rule_table_keys:
-                            if subnet_id not in subnets:
-                                self.fip_ns.rule_table_deallocate(subnet_id)
-                    else:
-                        LOG.error(_LE("No FloatingIP agent gateway port "
-                                      "returned from server for 'network-id': "
-                                      "%s"), ex_gw_port['network_id'])
-                        # TODO(nanzhang): Need to del rule table if none subnet
-                        # use it? Seemingly it doesn't, when rule add and lookup
-                        # some table, the table's gateway will be replaced
-                else:
-                    LOG.error('Fip %s port not found.', floating_ip)
-            except Exception:
-                err_msg = "floating_ip_removed_dist error %s" % \
-                          traceback.format_exc()
-                LOG.exception(err_msg)
-                raise exceptions.FloatingIpSetupException(err_msg)
-
             self.fip_ns.deallocate_rule_priority(floating_ip)
             # TODO(rajeev): Handle else case - exception/log?
+
+        # del subnet rule and rule table
+        try:
+            LOG.debug("DVR: del fipns subnets's rule, fip_cidr: %s", fip_cidr)
+            ex_gw_port = self.get_ex_gw_port()
+            fip_agent_port = self.get_floating_agent_gw_interface(
+                ex_gw_port['network_id'])
+            if not fip_agent_port:
+                LOG.debug(
+                    "No FloatingIP agent gateway port possibly due to "
+                    "late binding of the private port to the host, "
+                    "requesting agent gateway port for 'network-id' :"
+                    "%s", ex_gw_port['network_id'])
+                fip_agent_port = self.agent.plugin_rpc. \
+                    get_agent_gateway_port(self.agent.context,
+                                           ex_gw_port['network_id'])
+            if fip_agent_port:
+                subnet_ids = [subnet['id'] for
+                             subnet in fip_agent_port['subnets']]
+                rule_table_keys = self.fip_ns.rule_table_keys()
+                LOG.debug('subnet_ids: %s, rule_table_keys: %s',
+                          subnet_ids,
+                          rule_table_keys)
+                for subnet_id in rule_table_keys:
+                    if subnet_id not in subnet_ids:
+                        LOG.debug("DVR: del fipns subnets's rule, "
+                                  "subnet_id: %s", subnet_id)
+                        ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+                        rules = ip_rule.rule. \
+                            list_rules(get_ip_version(fip_cidr))
+                        LOG.debug("DVR: rules: %s", rules)
+                        to_delete_rules = filter(lambda x:
+                                                 x['from'] == fip_cidr,
+                                                 rules)
+                        if any(to_delete_rules):
+                            to_delete_rule = to_delete_rules[0]['table']
+                            fip_fg_name = self.fip_ns. \
+                                get_ext_device_name(fip_agent_port['id'])
+                            device = ip_lib.IPDevice(fip_fg_name,
+                                                     namespace=fip_ns_name)
+                            gateway = device.route.get_gateway()
+                            if gateway:
+                                gateway = gateway.get('gateway')
+                                try:
+                                    device.route.delete_gateway(gateway,
+                                                        table=to_delete_rule)
+                                except exceptions.DeviceNotFoundError:
+                                    pass
+                            ip_rule.rule.delete(ip=floating_ip,
+                                                table=to_delete_rule,
+                                                priority=to_delete_rule)
+                        self.fip_ns.rule_table_deallocate(subnet_id)
+            else:
+                LOG.error(_LE("No FloatingIP agent gateway port "
+                              "returned from server for 'network-id': "
+                              "%s"), ex_gw_port['network_id'])
+        except Exception:
+            err_msg = "floating_ip_removed_dist error %s" % \
+                      traceback.format_exc()
+            LOG.exception(err_msg)
+            raise exceptions.FloatingIpSetupException(err_msg)
 
         device = ip_lib.IPDevice(fip_2_rtr_name, namespace=fip_ns_name)
 
