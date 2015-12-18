@@ -236,34 +236,38 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                     if subnet_id not in subnet_ids:
                         LOG.debug("DVR: del fipns subnets's rule, "
                                   "subnet_id: %s", subnet_id)
-                        fip_subnets = filter(lambda x: x['id'] == subnet_id,
-                                         fip_agent_port['subnets'])
-                        if fip_subnets and len(fip_subnets) == 1:
-                            _fip_cidr = fip_subnets[0].get('cidr')
-                            ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
-                            rules = ip_rule.rule. \
-                                list_rules(get_ip_version(_fip_cidr))
+                        ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+                        rules = ip_rule.rule.list_rules(4)
+                        LOG.debug("DVR: rules: %s", rules)
+                        priority = self.fip_ns.rule_table_allocate(subnet_id)
+                        to_delete_rules = filter(lambda x:
+                                                 x['priority'] == priority,
+                                                 rules)
+                        if not to_delete_rules:
+                            rules = ip_rule.rule.list_rules(6)
                             LOG.debug("DVR: rules: %s", rules)
                             to_delete_rules = filter(lambda x:
-                                                     x['from'] == _fip_cidr,
+                                                     x['priority'] == priority,
                                                      rules)
-                            if any(to_delete_rules):
-                                to_delete_rule = to_delete_rules[0]['table']
-                                fip_fg_name = self.fip_ns. \
-                                    get_ext_device_name(fip_agent_port['id'])
-                                device = ip_lib.IPDevice(fip_fg_name,
-                                                         namespace=fip_ns_name)
-                                gateway = device.route.get_gateway()
-                                if gateway:
-                                    gateway = gateway.get('gateway')
-                                    try:
-                                        device.route.delete_gateway(gateway,
-                                                        table=to_delete_rule)
-                                    except exceptions.DeviceNotFoundError:
-                                        pass
-                                ip_rule.rule.delete(ip=_fip_cidr,
-                                                    table=to_delete_rule,
-                                                    priority=to_delete_rule)
+                        if any(to_delete_rules):
+                            to_delete_ip = to_delete_rules[0]['from']
+                            fip_fg_name = self.fip_ns. \
+                                get_ext_device_name(fip_agent_port['id'])
+
+                            ip_rule.rule.delete(ip=to_delete_ip,
+                                                table=priority,
+                                                priority=priority)
+
+                        device = ip_lib.IPDevice(fip_fg_name,
+                                                 namespace=fip_ns_name)
+                        gateway = device.route.get_gateway()
+                        if gateway:
+                            gateway = gateway.get('gateway')
+                            try:
+                                device.route.delete_gateway(gateway,
+                                                            table=priority)
+                            except exceptions.DeviceNotFoundError:
+                                pass
                         self.fip_ns.rule_table_deallocate(subnet_id)
             else:
                 LOG.error(_LE("No FloatingIP agent gateway port "
