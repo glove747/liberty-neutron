@@ -188,9 +188,9 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                         LOG.debug("DVR: rules: %s", rules)
                         contains = filter(lambda x: x['from'] == _fip_cidr,
                                           rules)
+                        rule_table = self.fip_ns.\
+                            rule_table_allocate(fip_subnet_id)
                         if not any(contains):
-                            rule_table = self.fip_ns.\
-                                rule_table_allocate(fip_subnet_id)
                             fip_fg_name = self.fip_ns.\
                                 get_ext_device_name(fip_agent_port['id'])
                             device = ip_lib.IPDevice(fip_fg_name,
