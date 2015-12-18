@@ -98,10 +98,69 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         # update internal structures
         self.dist_fip_count = self.dist_fip_count + 1
 
-        # Add rule to different subnets
+        # Add rule by different subnets
+        self._add_fip_gateway_rule(floating_ip)
+
+    def floating_ip_removed_dist(self, fip_cidr):
+        """Remove floating IP from FIP namespace."""
+        floating_ip = fip_cidr.split('/')[0]
+        rtr_2_fip_name = self.fip_ns.get_rtr_ext_device_name(self.router_id)
+        fip_2_rtr_name = self.fip_ns.get_int_device_name(self.router_id)
+        if self.rtr_fip_subnet is None:
+            self.rtr_fip_subnet = self.fip_ns.local_subnets.allocate(
+                self.router_id)
+
+        rtr_2_fip, fip_2_rtr = self.rtr_fip_subnet.get_pair()
+        fip_ns_name = self.fip_ns.get_name()
+        if floating_ip in self.floating_ips_dict:
+            rule_pr = self.floating_ips_dict[floating_ip]
+            ip_rule = ip_lib.IPRule(namespace=self.ns_name)
+            ip_rule.rule.delete(ip=floating_ip,
+                                table=dvr_fip_ns.FIP_RT_TBL,
+                                priority=rule_pr)
+            self.fip_ns.deallocate_rule_priority(floating_ip)
+            # TODO(rajeev): Handle else case - exception/log?
+
+        device = ip_lib.IPDevice(fip_2_rtr_name, namespace=fip_ns_name)
+
+        device.route.delete_route(fip_cidr, str(rtr_2_fip.ip))
+        # check if this is the last FIP for this router
+        self.dist_fip_count = self.dist_fip_count - 1
+        if self.dist_fip_count == 0:
+            # remove default route entry
+            device = ip_lib.IPDevice(rtr_2_fip_name, namespace=self.ns_name)
+            ns_ip = ip_lib.IPWrapper(namespace=fip_ns_name)
+            device.route.delete_gateway(str(fip_2_rtr.ip),
+                                        table=dvr_fip_ns.FIP_RT_TBL)
+            self.fip_ns.local_subnets.release(self.router_id)
+            self.rtr_fip_subnet = None
+            ns_ip.del_veth(fip_2_rtr_name)
+            is_last = self.fip_ns.unsubscribe(self.router_id)
+            if is_last:
+                # TODO(Carl) I can't help but think that another router could
+                # come in and want to start using this namespace while this is
+                # destroying it.  The two could end up conflicting on
+                # creating/destroying interfaces and such.  I think I'd like a
+                # semaphore to sync creation/deletion of this namespace.
+
+                # NOTE (Swami): Since we are deleting the namespace here we
+                # should be able to delete the floatingip agent gateway port
+                # for the provided external net since we don't need it anymore.
+                if self.fip_ns.agent_gateway_port:
+                    LOG.debug('Removed last floatingip, so requesting the '
+                              'server to delete Floatingip Agent Gateway port:'
+                              '%s', self.fip_ns.agent_gateway_port)
+                    self.agent.plugin_rpc.delete_agent_gateway_port(
+                        self.agent.context,
+                        self.fip_ns.agent_gateway_port['network_id'])
+                self.fip_ns.delete()
+                self.fip_ns = None
+
+    def _add_fip_gateway_rule(self, floating_ip):
         try:
-            LOG.debug("DVR: add fipns subnets's rule, fip: %s, fip_cidr: %s",
-                      fip, fip_cidr)
+            LOG.debug("DVR: add fipns subnets's rule, floating_ip: %s",
+                      floating_ip)
+            fip_ns_name = self.fip_ns.get_name()
             fip_port = self.agent.get_port_by_floatingip(floating_ip)
             LOG.debug("DVR: add fipns subnets's rule, fip_port: %s", fip_port)
             if fip_port and fip_port['fixed_ips']:
@@ -123,6 +182,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                          fip_agent_port['subnets'])
                     if fip_subnets and len(fip_subnets) == 1:
                         _fip_cidr = fip_subnets[0].get('cidr')
+                        ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
                         rules = ip_rule.rule. \
                             list_rules(get_ip_version(_fip_cidr))
                         LOG.debug("DVR: rules: %s", rules)
@@ -159,41 +219,12 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             LOG.exception(err_msg)
             raise exceptions.FloatingIpSetupException(err_msg)
 
-    def floating_ip_removed_dist(self, fip_cidr):
-        """Remove floating IP from FIP namespace."""
-        floating_ip = fip_cidr.split('/')[0]
-        rtr_2_fip_name = self.fip_ns.get_rtr_ext_device_name(self.router_id)
-        fip_2_rtr_name = self.fip_ns.get_int_device_name(self.router_id)
-        if self.rtr_fip_subnet is None:
-            self.rtr_fip_subnet = self.fip_ns.local_subnets.allocate(
-                self.router_id)
-
-        rtr_2_fip, fip_2_rtr = self.rtr_fip_subnet.get_pair()
-        fip_ns_name = self.fip_ns.get_name()
-        if floating_ip in self.floating_ips_dict:
-            rule_pr = self.floating_ips_dict[floating_ip]
-            ip_rule = ip_lib.IPRule(namespace=self.ns_name)
-            ip_rule.rule.delete(ip=floating_ip,
-                                table=dvr_fip_ns.FIP_RT_TBL,
-                                priority=rule_pr)
-            self.fip_ns.deallocate_rule_priority(floating_ip)
-            # TODO(rajeev): Handle else case - exception/log?
-
+    def _del_fip_gateway_rule(self, fip_agent_port):
         # del subnet rule and rule table
         try:
-            LOG.debug("DVR: del fipns subnets's rule, fip_cidr: %s", fip_cidr)
+            LOG.debug("DVR: del fipns subnets's rule")
+            fip_ns_name = self.fip_ns.get_name()
             ex_gw_port = self.get_ex_gw_port()
-            fip_agent_port = self.get_floating_agent_gw_interface(
-                ex_gw_port['network_id'])
-            if not fip_agent_port:
-                LOG.debug(
-                    "No FloatingIP agent gateway port possibly due to "
-                    "late binding of the private port to the host, "
-                    "requesting agent gateway port for 'network-id' :"
-                    "%s", ex_gw_port['network_id'])
-                fip_agent_port = self.agent.plugin_rpc. \
-                    get_agent_gateway_port(self.agent.context,
-                                           ex_gw_port['network_id'])
             if fip_agent_port:
                 subnet_ids = [subnet['id'] for
                               subnet in fip_agent_port['subnets']]
@@ -243,41 +274,6 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                       traceback.format_exc()
             LOG.exception(err_msg)
             raise exceptions.FloatingIpSetupException(err_msg)
-
-        device = ip_lib.IPDevice(fip_2_rtr_name, namespace=fip_ns_name)
-
-        device.route.delete_route(fip_cidr, str(rtr_2_fip.ip))
-        # check if this is the last FIP for this router
-        self.dist_fip_count = self.dist_fip_count - 1
-        if self.dist_fip_count == 0:
-            # remove default route entry
-            device = ip_lib.IPDevice(rtr_2_fip_name, namespace=self.ns_name)
-            ns_ip = ip_lib.IPWrapper(namespace=fip_ns_name)
-            device.route.delete_gateway(str(fip_2_rtr.ip),
-                                        table=dvr_fip_ns.FIP_RT_TBL)
-            self.fip_ns.local_subnets.release(self.router_id)
-            self.rtr_fip_subnet = None
-            ns_ip.del_veth(fip_2_rtr_name)
-            is_last = self.fip_ns.unsubscribe(self.router_id)
-            if is_last:
-                # TODO(Carl) I can't help but think that another router could
-                # come in and want to start using this namespace while this is
-                # destroying it.  The two could end up conflicting on
-                # creating/destroying interfaces and such.  I think I'd like a
-                # semaphore to sync creation/deletion of this namespace.
-
-                # NOTE (Swami): Since we are deleting the namespace here we
-                # should be able to delete the floatingip agent gateway port
-                # for the provided external net since we don't need it anymore.
-                if self.fip_ns.agent_gateway_port:
-                    LOG.debug('Removed last floatingip, so requesting the '
-                              'server to delete Floatingip Agent Gateway port:'
-                              '%s', self.fip_ns.agent_gateway_port)
-                    self.agent.plugin_rpc.delete_agent_gateway_port(
-                        self.agent.context,
-                        self.fip_ns.agent_gateway_port['network_id'])
-                self.fip_ns.delete()
-                self.fip_ns = None
 
     def add_floating_ip(self, fip, interface_name, device):
         if not self._add_fip_addr_to_device(fip, device):
@@ -523,6 +519,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                               , old_subnet_count)
                     if new_subnet_count != old_subnet_count:
                         self.fip_ns.update_gateway_port(fip_agent_port)
+                        self._del_fip_gateway_rule(fip_agent_port)
 
         super(DvrLocalRouter, self).process_external(agent)
 
