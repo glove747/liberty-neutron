@@ -251,13 +251,12 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                                      rules)
                         if any(to_delete_rules):
                             to_delete_ip = to_delete_rules[0]['from']
-                            fip_fg_name = self.fip_ns. \
-                                get_ext_device_name(fip_agent_port['id'])
-
                             ip_rule.rule.delete(ip=to_delete_ip,
                                                 table=priority,
                                                 priority=priority)
 
+                        fip_fg_name = self.fip_ns. \
+                            get_ext_device_name(fip_agent_port['id'])
                         device = ip_lib.IPDevice(fip_fg_name,
                                                  namespace=fip_ns_name)
                         gateway = device.route.get_gateway()
