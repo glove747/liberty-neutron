@@ -238,14 +238,17 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                   "subnet_id: %s", subnet_id)
                         ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
                         rules = ip_rule.rule.list_rules(4)
-                        LOG.debug("DVR: rules: %s", rules)
-                        priority = self.fip_ns.rule_table_allocate(subnet_id)
+                        priority = str(self.fip_ns.
+                                       rule_table_allocate(subnet_id))
+                        LOG.debug("DVR: ipv4 rules: %s, priority: %s",
+                                  rules, priority)
                         to_delete_rules = filter(lambda x:
                                                  x['priority'] == priority,
                                                  rules)
                         if not to_delete_rules:
                             rules = ip_rule.rule.list_rules(6)
-                            LOG.debug("DVR: rules: %s", rules)
+                            LOG.debug("DVR: ipv6 rules: %s, priority: %s",
+                                      rules, priority)
                             to_delete_rules = filter(lambda x:
                                                      x['priority'] == priority,
                                                      rules)
