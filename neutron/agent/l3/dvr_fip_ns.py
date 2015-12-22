@@ -384,8 +384,7 @@ class FipNamespace(namespaces.Namespace):
                 pass
         try:
             interface_name = self.get_ext_device_name(fip_gateway_port_id)
-            if ip_lib.device_exists(interface_name,
-                                    namespace=self.get_name()):
+            if ip_lib.device_exists(interface_name, namespace=self.get_name()):
                 device = ip_lib.IPDevice(interface_name,
                                          namespace=self.get_name())
                 if operation == 'add':
