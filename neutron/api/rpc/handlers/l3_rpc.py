@@ -19,10 +19,15 @@ import oslo_messaging
 from oslo_serialization import jsonutils
 import six
 
+from neutron.callbacks import events
+from neutron.callbacks import exceptions
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import constants
 from neutron.common import exceptions
 from neutron.common import utils
 from neutron import context as neutron_context
+from neutron.common.constants import FLOATINGIP_STATUS_ACTIVE
 from neutron.db import api as db_api
 from neutron.extensions import l3
 from neutron.extensions import portbindings
@@ -234,6 +239,24 @@ class L3RpcCallback(object):
             for fip_id in fips_to_disable:
                 self.l3plugin.update_floatingip_status(
                     context, fip_id, constants.FLOATINGIP_STATUS_DOWN)
+
+            self._notify_fip_update(context, fip_statuses)
+
+    def _notify_fip_update(self, context, fip_statuses):
+        floating_ips = []
+        for (floatingip_id, status) in six.iteritems(fip_statuses):
+            LOG.debug("New status for floating IP %(floatingip_id)s: "
+                      "%(status)s", {'floatingip_id': floatingip_id,
+                                     'status': status})
+            try:
+                floating_ips.append(self.l3plugin.get_floatingip(context,
+                                                                 floatingip_id))
+            except l3.FloatingIPNotFound:
+                LOG.debug("Floating IP: %s no longer present.",
+                          floatingip_id)
+        kwargs = {'context': context, 'floating_ips': floating_ips}
+        registry.notify(resources.FLOATINGIP, events.AFTER_UPDATE, self,
+                        **kwargs)
 
     def get_ports_by_subnet(self, context, **kwargs):
         """DVR: RPC called by dvr-agent to get all ports for subnet."""

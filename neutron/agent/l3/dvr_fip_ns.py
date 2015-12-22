@@ -13,6 +13,9 @@
 #    under the License.
 
 import os
+import traceback
+
+from oslo_utils import excutils
 
 from neutron.agent.l3 import fip_rule_priority_allocator as frpa
 from neutron.agent.l3 import link_local_allocator as lla
@@ -20,7 +23,10 @@ from neutron.agent.l3 import namespaces
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
 from neutron.common import utils as common_utils
+from neutron.common import exceptions as n_exc
 from oslo_log import log as logging
+
+from neutron.common.constants import IP_VERSION_4, IP_VERSION_6
 
 LOG = logging.getLogger(__name__)
 
@@ -304,3 +310,98 @@ class FipNamespace(namespaces.Namespace):
                 rule_pr = self._rule_priorities.allocate(fip_ip)
                 ri.floating_ips_dict[fip_ip] = rule_pr
             ri.dist_fip_count = len(fip_cidrs)
+
+    def update_fip_gateway_rule(self, fip_agent_port):
+        # update subnet rule and rule table
+        try:
+            LOG.debug("DVR: update fip-xxx ns subnets's rule")
+            subnet_ids = [subnet['id'] for
+                          subnet in fip_agent_port['subnets']]
+            rule_table_keys = self.rule_table_keys()
+            LOG.debug('subnet_ids: %s, rule_table_keys: %s',
+                      subnet_ids,
+                      rule_table_keys)
+            for subnet_id in rule_table_keys:
+                # to delete
+                if subnet_id not in subnet_ids:
+                    try:
+                        LOG.debug("DVR: del fipns subnets's rule, "
+                                  "subnet_id: %s", subnet_id)
+                        priority = str(self.rule_table_allocate(subnet_id))
+                        self._delete_fip_gateway_rule(priority)
+
+                        fip_fg_name = self. \
+                            get_ext_device_name(fip_agent_port['id'])
+                        fip_ns_name = self.get_name()
+                        device = ip_lib.IPDevice(fip_fg_name,
+                                                 namespace=fip_ns_name)
+                        gateway = device.route.get_gateway()
+                        if gateway:
+                            gateway = gateway.get('gateway')
+                            try:
+                                device.route.delete_gateway(gateway,
+                                                            table=priority)
+                            except n_exc.DeviceNotFoundError:
+                                pass
+                        self.rule_table_deallocate(subnet_id)
+                    except Exception:
+                        err_msg = "del_fip_gateway_rule error %s" % \
+                                  traceback.format_exc()
+                        LOG.exception(err_msg)
+        except Exception:
+            err_msg = "update_fip_gateway_rule error %s" % \
+                      traceback.format_exc()
+            LOG.exception(err_msg)
+            raise n_exc.FloatingIpSetupException(err_msg)
+
+    def _delete_fip_gateway_rule(self, priority):
+        def _delete(ip_version):
+            fip_ns_name = self.get_name()
+            ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+            rules = ip_rule.rule.list_rules(ip_version)
+            LOG.debug("DVR: ip %s rules: %s, priority: %s",
+                      ip_version, rules, priority)
+            if rules:
+                to_delete_rules = filter(lambda x:
+                                         x['priority'] == priority,
+                                         rules)
+                if any(to_delete_rules):
+                    to_delete_ip = to_delete_rules[0]['from']
+                    ip_rule.rule.delete(ip=to_delete_ip,
+                                        table=priority,
+                                        priority=priority)
+        _delete(IP_VERSION_4)
+        _delete(IP_VERSION_6)
+
+    @common_utils.synchronized("update_fip_arp_entry")
+    def _update_fip_arp_entry(self, fip_gateway_port_id, fip, mac, operation):
+        def _delete(fip):
+            try:
+                while True:
+                    device.neigh.delete(fip)
+                    LOG.debug("DVR: deleted fip arp entry, %s .", fip)
+            except Exception:
+                pass
+        try:
+            interface_name = self.get_ext_device_name(fip_gateway_port_id)
+            if ip_lib.device_exists(interface_name, namespace=self.ns_name):
+                device = ip_lib.IPDevice(interface_name, namespace=self.ns_name)
+                if operation == 'add':
+                    _delete(fip)
+                    device.neigh.add(fip, mac)
+                    LOG.debug("DVR: added fip arp entry, %s %s .", fip, mac)
+                elif operation == 'delete':
+                    _delete(fip)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.exception("DVR: Failed updating fip arp entry")
+
+    def add_fip_arp_entry(self, fip_gateway_port_id, arp_dict):
+        fip = arp_dict['floating_ip_address']
+        mac = arp_dict['mac_address']
+        self._update_fip_arp_entry(fip_gateway_port_id, fip, mac, 'add')
+
+    def del_fip_arp_entry(self, fip_gateway_port_id, arp_dict):
+        fip = arp_dict['floating_ip_address']
+        self._update_fip_arp_entry(fip_gateway_port_id, fip, None, 'del')
+

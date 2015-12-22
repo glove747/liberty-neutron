@@ -12,8 +12,9 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import json
 import random
+import traceback
 
 from oslo_log import log as logging
 import oslo_messaging
@@ -22,6 +23,8 @@ from neutron.common import constants
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
+from neutron.common.constants import L3_AGENT_MODE_DVR
+from neutron.common.topics import L3_AGENT
 from neutron.db import agentschedulers_db
 from neutron.i18n import _LE
 from neutron import manager
@@ -99,6 +102,39 @@ class L3AgentNotifyAPI(object):
                                         version='1.2')
             cctxt.cast(context, method, payload=dvr_arptable)
 
+    def _agent_notification_arp_broadcast(self, context, method, arp_dict):
+        if not method or arp_dict:
+            return
+        admin_ctx = context.elevated()
+        plugin = manager.NeutronManager.get_service_plugins().get(
+            service_constants.L3_ROUTER_NAT)
+        external_network_id = plugin.get_external_network_id(admin_ctx)
+        data = {'external_network_id': external_network_id,
+                'arp_dict': arp_dict}
+        l3_agents = plugin.get_l3_dvr_agents(admin_ctx)
+        for l3_agent in l3_agents:
+            try:
+                topic = l3_agent['topic']
+                host = l3_agent['host']
+                fip_gateway_port = plugin. \
+                    create_fip_agent_gw_port_if_not_exists(admin_ctx,
+                                                           external_network_id,
+                                                           host)
+                data['fip_gateway_port_id'] = fip_gateway_port['id']
+                log_topic = '%s.%s' % (topic, host)
+                LOG.debug('Casting message %(method)s with topic %(topic)s'
+                          ' host %(host)s data %(data)s .',
+                          {'topic': log_topic, 'method': method,
+                           'host': host, 'data': data})
+                cctxt = self.client.prepare(topic=topic,
+                                            server=host,
+                                            version='1.2')
+                cctxt.cast(context, method, data=data)
+            except Exception:
+                err_msg = "notification_arp l3_agent %s error %s", \
+                          host, traceback.format_exc()
+                LOG.exception(err_msg)
+
     def _notification(self, context, method, router_ids, operation,
                       shuffle_agents, schedule_routers=True):
         """Notify all the agents that are hosting the routers."""
@@ -135,6 +171,9 @@ class L3AgentNotifyAPI(object):
                                 {'admin_state_up': admin_state_up},
                                 host)
 
+    def update_fip_gateway(self, context, data, host):
+        self._notification_host(context, 'update_fip_gateway', data, host)
+
     def router_deleted(self, context, router_id):
         self._notification_fanout(context, 'router_deleted', router_id)
 
@@ -151,6 +190,14 @@ class L3AgentNotifyAPI(object):
     def del_arp_entry(self, context, router_id, arp_table, operation=None):
         self._agent_notification_arp(context, 'del_arp_entry', router_id,
                                      operation, arp_table)
+
+    def add_fip_arp_entry(self, context, arp_dict):
+        self._agent_notification_arp_broadcast(context, 'add_fip_arp_entry',
+                                               arp_dict)
+
+    def del_fip_arp_entry(self, context, arp_dict):
+        self._agent_notification_arp_broadcast(context, 'del_fip_arp_entry',
+                                               arp_dict)
 
     def router_removed_from_agent(self, context, router_id, host):
         self._notification_host(context, 'router_removed_from_agent',

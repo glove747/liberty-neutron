@@ -219,68 +219,6 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             LOG.exception(err_msg)
             raise exceptions.FloatingIpSetupException(err_msg)
 
-    def _del_fip_gateway_rule(self, fip_agent_port):
-        # del subnet rule and rule table
-        try:
-            LOG.debug("DVR: del fipns subnets's rule")
-            fip_ns_name = self.fip_ns.get_name()
-            ex_gw_port = self.get_ex_gw_port()
-            if fip_agent_port:
-                subnet_ids = [subnet['id'] for
-                              subnet in fip_agent_port['subnets']]
-                rule_table_keys = self.fip_ns.rule_table_keys()
-                LOG.debug('subnet_ids: %s, rule_table_keys: %s',
-                          subnet_ids,
-                          rule_table_keys)
-                for subnet_id in rule_table_keys:
-                    if subnet_id not in subnet_ids:
-                        LOG.debug("DVR: del fipns subnets's rule, "
-                                  "subnet_id: %s", subnet_id)
-                        ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
-                        rules = ip_rule.rule.list_rules(4)
-                        priority = str(self.fip_ns.
-                                       rule_table_allocate(subnet_id))
-                        LOG.debug("DVR: ipv4 rules: %s, priority: %s",
-                                  rules, priority)
-                        to_delete_rules = filter(lambda x:
-                                                 x['priority'] == priority,
-                                                 rules)
-                        if not to_delete_rules:
-                            rules = ip_rule.rule.list_rules(6)
-                            LOG.debug("DVR: ipv6 rules: %s, priority: %s",
-                                      rules, priority)
-                            to_delete_rules = filter(lambda x:
-                                                     x['priority'] == priority,
-                                                     rules)
-                        if any(to_delete_rules):
-                            to_delete_ip = to_delete_rules[0]['from']
-                            ip_rule.rule.delete(ip=to_delete_ip,
-                                                table=priority,
-                                                priority=priority)
-
-                        fip_fg_name = self.fip_ns. \
-                            get_ext_device_name(fip_agent_port['id'])
-                        device = ip_lib.IPDevice(fip_fg_name,
-                                                 namespace=fip_ns_name)
-                        gateway = device.route.get_gateway()
-                        if gateway:
-                            gateway = gateway.get('gateway')
-                            try:
-                                device.route.delete_gateway(gateway,
-                                                            table=priority)
-                            except exceptions.DeviceNotFoundError:
-                                pass
-                        self.fip_ns.rule_table_deallocate(subnet_id)
-            else:
-                LOG.error(_LE("No FloatingIP agent gateway port "
-                              "returned from server for 'network-id': "
-                              "%s"), ex_gw_port['network_id'])
-        except Exception:
-            err_msg = "floating_ip_removed_dist error %s" % \
-                      traceback.format_exc()
-            LOG.exception(err_msg)
-            raise exceptions.FloatingIpSetupException(err_msg)
-
     def add_floating_ip(self, fip, interface_name, device):
         if not self._add_fip_addr_to_device(fip, device):
             return l3_constants.FLOATINGIP_STATUS_ERROR
@@ -512,20 +450,6 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         ex_gw_port = self.get_ex_gw_port()
         if ex_gw_port:
             self.create_dvr_fip_interfaces(ex_gw_port)
-            fip_agent_port = self.agent.plugin_rpc.get_agent_gateway_port(
-                self.agent.context, ex_gw_port['network_id'])
-            if fip_agent_port:
-                if self.fip_ns.agent_gateway_port:
-                    new_subnet_count = len(fip_agent_port['subnets'])
-                    old_subnet_count = \
-                        len(self.fip_ns.agent_gateway_port['subnets'])
-                    LOG.debug("FloatingIP agent gateway port "
-                              " new_subnet_count: %s"
-                              " old_subnet_count: %s", new_subnet_count
-                              , old_subnet_count)
-                    if new_subnet_count != old_subnet_count:
-                        self.fip_ns.update_gateway_port(fip_agent_port)
-                        self._del_fip_gateway_rule(fip_agent_port)
 
         super(DvrLocalRouter, self).process_external(agent)
 

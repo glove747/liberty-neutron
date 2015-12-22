@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 #
+import traceback
 
 import eventlet
 import netaddr
@@ -686,3 +687,19 @@ class L3NATAgentWithStateReport(L3NATAgent):
         """Handle the agent_updated notification event."""
         self.fullsync = True
         LOG.info(_LI("agent_updated by server side %s!"), payload)
+
+    def update_fip_gateway(self, context, data):
+        fip_gateway_port = data['fip_gateway_port']
+        external_network_id = data['external_network_id']
+        fip_ns = self.get_fip_ns(external_network_id)
+        if fip_gateway_port:
+            if fip_ns.agent_gateway_port:
+                new_subnet_count = len(fip_gateway_port['subnets'])
+                old_subnet_count = len(fip_ns.agent_gateway_port['subnets'])
+                LOG.debug("FloatingIP agent gateway port "
+                          " new_subnet_count: %s"
+                          " old_subnet_count: %s", new_subnet_count
+                          , old_subnet_count)
+                if new_subnet_count != old_subnet_count:
+                    fip_ns.update_gateway_port(fip_gateway_port)
+                    fip_ns.update_fip_gateway_rule(fip_gateway_port)
