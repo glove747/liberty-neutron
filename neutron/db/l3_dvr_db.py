@@ -32,6 +32,7 @@ from neutron.db import l3_dvrscheduler_db as l3_dvrsched_db
 from neutron.db import models_v2
 from neutron.extensions import l3
 from neutron.extensions import portbindings
+from neutron.extensions.portbindings import HOST_ID
 from neutron.i18n import _LI
 from neutron import manager
 from neutron.plugins.common import constants
@@ -564,7 +565,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                              'network_id': network_id,
                              'device_id': l3_agent_db['id'],
                              'device_owner': l3_const.DEVICE_OWNER_AGENT_GW,
-                             'binding:host_id': host,
+                             HOST_ID: host,
                              'admin_state_up': True,
                              'name': '',
                              'fixed_ips': []}

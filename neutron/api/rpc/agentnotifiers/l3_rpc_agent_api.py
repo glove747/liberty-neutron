@@ -103,22 +103,24 @@ class L3AgentNotifyAPI(object):
             cctxt.cast(context, method, payload=dvr_arptable)
 
     def _agent_notification_arp_broadcast(self, context, method, arp_dict):
-        LOG.debug('DVR: _agent_notification_arp_broadcast arp_dict: %s ',
-                  arp_dict)
-        if not method or arp_dict:
+        LOG.debug('DVR: _agent_notification_arp_broadcast method: %s, '
+                  'arp_dict: %s ', method, arp_dict)
+        if not method or not arp_dict:
             return
         admin_ctx = context.elevated()
-        plugin = manager.NeutronManager.get_service_plugins().get(
+        l3_plugin = manager.NeutronManager.get_service_plugins().get(
             service_constants.L3_ROUTER_NAT)
+        plugin = manager.NeutronManager.get_plugin()
         external_network_id = plugin.get_external_network_id(admin_ctx)
         data = {'external_network_id': external_network_id,
                 'arp_dict': arp_dict}
-        l3_agents = plugin.get_l3_dvr_agents(admin_ctx)
+        l3_agents = l3_plugin.get_l3_dvr_agents(admin_ctx)
+        LOG.debug('DVR: l3_agents: %s ', l3_agents)
         for l3_agent in l3_agents:
             try:
                 topic = l3_agent['topic']
                 host = l3_agent['host']
-                fip_gateway_port = plugin. \
+                fip_gateway_port = l3_plugin. \
                     create_fip_agent_gw_port_if_not_exists(admin_ctx,
                                                            external_network_id,
                                                            host)
@@ -194,6 +196,7 @@ class L3AgentNotifyAPI(object):
                                      operation, arp_table)
 
     def add_fip_arp_entry(self, context, arp_dict):
+        LOG.debug('DVR: add_fip_arp_entry arp_dict: %s ', arp_dict)
         self._agent_notification_arp_broadcast(context, 'add_fip_arp_entry',
                                                arp_dict)
 

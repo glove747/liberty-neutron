@@ -37,6 +37,7 @@ from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import l3agentscheduler
 from neutron.extensions.l3 import FloatingIPNotFound
+from neutron.extensions.portbindings import HOST_ID
 from neutron.i18n import _LI, _LW
 from neutron import manager
 from neutron.plugins.common import constants as service_constants
@@ -517,17 +518,17 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
 
     def _get_fip_gateway_port_by_floatingip(self, context, floatingip):
         fixed_ip_port_id = floatingip['port_id']
+        external_network_id = self._core_plugin.get_external_network_id(context)
         port = self._core_plugin.get_port(context, id=fixed_ip_port_id)
+        LOG.debug("DVR: fixed_ip_port %s.", port)
         if port:
-            host_id = port['binding:host_id']
-            network_id = port['network_id']
             filters = {
-                'admin_state_up': [True],
-                'network_id': [network_id],
-                'binding:host_id': [host_id],
+                'network_id': [external_network_id],
+                HOST_ID: [port[HOST_ID]],
                 'device_owner': [DEVICE_OWNER_AGENT_GW]
             }
             ports = self._core_plugin.get_ports(context, filters=filters)
+            LOG.debug("DVR: fip_gateway_port %s.", ports)
             if ports:
                 return ports[0]
         return None
@@ -622,6 +623,7 @@ def _notify_l3_agent_fip_update(resource, event, trigger, **kwargs):
         'event': event})
     floating_ips = kwargs.get('floating_ips', None)
     context = kwargs['context']
+    context = context.elevated()
     if not floating_ips:
         return
     l3plugin = manager.NeutronManager.get_service_plugins().get(
