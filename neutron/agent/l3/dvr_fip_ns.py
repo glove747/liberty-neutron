@@ -385,9 +385,9 @@ class FipNamespace(namespaces.Namespace):
         try:
             interface_name = self.get_ext_device_name(fip_gateway_port_id)
             if ip_lib.device_exists(interface_name,
-                                    namespace=self._get_ns_name()):
+                                    namespace=self.get_name()):
                 device = ip_lib.IPDevice(interface_name,
-                                         namespace=self._get_ns_name())
+                                         namespace=self.get_name())
                 if operation == 'add':
                     _delete(fip)
                     device.neigh.add(fip, mac)
