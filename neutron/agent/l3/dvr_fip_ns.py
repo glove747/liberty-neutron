@@ -315,8 +315,8 @@ class FipNamespace(namespaces.Namespace):
         # update subnet rule and rule table
         try:
             LOG.debug("DVR: update fip-xxx ns subnets's rule")
-            subnet_ids = [subnet['id'] for
-                          subnet in fip_agent_port['subnets']]
+            subnet_ids = [fixed_ip['subnet_id'] for
+                          fixed_ip in fip_agent_port['fixed_ips']]
             rule_table_keys = self.rule_table_keys()
             LOG.debug('subnet_ids: %s, rule_table_keys: %s',
                       subnet_ids,

@@ -694,12 +694,12 @@ class L3NATAgentWithStateReport(L3NATAgent):
         fip_ns = self.get_fip_ns(external_network_id)
         if fip_gateway_port:
             if fip_ns.agent_gateway_port:
-                new_subnet_count = len(fip_gateway_port['subnets'])
-                old_subnet_count = len(fip_ns.agent_gateway_port['subnets'])
+                new_fixed_ip_count = len(fip_gateway_port['fixed_ips'])
+                old_fixed_ip_count = len(fip_ns.agent_gateway_port['fixed_ips'])
                 LOG.debug("FloatingIP agent gateway port "
                           " new_subnet_count: %s"
-                          " old_subnet_count: %s", new_subnet_count
-                          , old_subnet_count)
-                if new_subnet_count != old_subnet_count:
+                          " old_subnet_count: %s", new_fixed_ip_count
+                          , old_fixed_ip_count)
+                if new_fixed_ip_count != old_fixed_ip_count:
                     fip_ns.update_gateway_port(fip_gateway_port)
                     fip_ns.update_fip_gateway_rule(fip_gateway_port)
