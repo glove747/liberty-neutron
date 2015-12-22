@@ -692,7 +692,7 @@ class L3NATAgentWithStateReport(L3NATAgent):
         external_network_id = payload['external_network_id']
         fip_ns = self.get_fip_ns(external_network_id)
         fip_gateway_port = self.plugin_rpc.get_agent_gateway_port(
-            self.agent.context,
+            context,
             external_network_id)
         if fip_gateway_port:
             if fip_ns.agent_gateway_port:
