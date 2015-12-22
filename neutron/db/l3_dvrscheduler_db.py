@@ -154,7 +154,6 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                 if fip_gateway_port:
                     data['fip_gateway_port'] = fip_gateway_port
                     self.l3_rpc_notifier.update_fip_gateway(context,
-                                                            l3_agent.admin_state_up,
                                                             data,
                                                             l3_agent['host'])
                     LOG.debug('DVR: dvr_update_floatingip_agent_gateway_shared'
