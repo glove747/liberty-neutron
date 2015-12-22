@@ -375,24 +375,19 @@ class FipNamespace(namespaces.Namespace):
 
     @common_utils.synchronized("update_fip_arp_entry")
     def _update_fip_arp_entry(self, fip_gateway_port_id, fip, mac, operation):
-        def _delete(fip):
-            try:
-                while True:
-                    device.neigh.delete(fip)
-                    LOG.debug("DVR: deleted fip arp entry, %s .", fip)
-            except Exception:
-                pass
         try:
             interface_name = self.get_ext_device_name(fip_gateway_port_id)
             if ip_lib.device_exists(interface_name, namespace=self.get_name()):
                 device = ip_lib.IPDevice(interface_name,
                                          namespace=self.get_name())
                 if operation == 'add':
-                    _delete(fip)
+                    device.neigh.delete(fip)
+                    LOG.debug("DVR: deleted fip arp entry, %s .", fip)
                     device.neigh.add(fip, mac)
                     LOG.debug("DVR: added fip arp entry, %s %s .", fip, mac)
                 elif operation == 'delete':
-                    _delete(fip)
+                    device.neigh.delete(fip)
+                    LOG.debug("DVR: deleted fip arp entry, %s .", fip)
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.exception("DVR: Failed updating fip arp entry")
