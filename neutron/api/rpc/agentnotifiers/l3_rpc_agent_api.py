@@ -41,13 +41,13 @@ class L3AgentNotifyAPI(object):
         target = oslo_messaging.Target(topic=topic, version='1.0')
         self.client = n_rpc.get_client(target)
 
-    def _notification_host(self, context, method, data, host):
+    def _notification_host(self, context, method, payload, host):
         """Notify the agent that is hosting the router."""
         LOG.debug('Notify agent at %(host)s the message '
                   '%(method)s', {'host': host,
                                  'method': method})
         cctxt = self.client.prepare(server=host)
-        cctxt.cast(context, method, data=data)
+        cctxt.cast(context, method, payload=payload)
 
     def _agent_notification(self, context, method, router_ids, operation,
                             shuffle_agents):

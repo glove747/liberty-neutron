@@ -688,9 +688,9 @@ class L3NATAgentWithStateReport(L3NATAgent):
         self.fullsync = True
         LOG.info(_LI("agent_updated by server side %s!"), payload)
 
-    def update_fip_gateway(self, context, data):
-        fip_gateway_port = data['fip_gateway_port']
-        external_network_id = data['external_network_id']
+    def update_fip_gateway(self, context, payload):
+        fip_gateway_port = payload['fip_gateway_port']
+        external_network_id = payload['external_network_id']
         fip_ns = self.get_fip_ns(external_network_id)
         if fip_gateway_port:
             if fip_ns.agent_gateway_port:
