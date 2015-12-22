@@ -147,20 +147,11 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
         data = {'external_network_id': external_network_id}
         for l3_agent in active_l3_agents:
             try:
-                fip_gateway_port = self.create_fip_agent_gw_port_if_not_exists(
-                    admin_ctx,
-                    external_network_id,
-                    l3_agent['host'])
-                if fip_gateway_port:
-                    data['fip_gateway_port'] = fip_gateway_port
-                    self.l3_rpc_notifier.update_fip_gateway(context,
-                                                            data,
-                                                            l3_agent['host'])
-                    LOG.debug('DVR: dvr_update_floatingip_agent_gateway_shared'
-                              ' l3_agent: %s ', l3_agent)
-                else:
-                    LOG.debug('DVR: fip_gateway_port not found, l3_agent: %s ',
-                              l3_agent)
+                self.l3_rpc_notifier.update_fip_gateway(context,
+                                                        data,
+                                                        l3_agent['host'])
+                LOG.debug('DVR: dvr_update_floatingip_agent_gateway_shared'
+                          ' l3_agent: %s', l3_agent)
             except Exception:
                 with excutils.save_and_reraise_exception():
                     LOG.exception("DVR: Failed updating fip arp entry")
