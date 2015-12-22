@@ -103,6 +103,8 @@ class L3AgentNotifyAPI(object):
             cctxt.cast(context, method, payload=dvr_arptable)
 
     def _agent_notification_arp_broadcast(self, context, method, arp_dict):
+        LOG.debug('DVR: _agent_notification_arp_broadcast arp_dict: %s ',
+                  arp_dict)
         if not method or arp_dict:
             return
         admin_ctx = context.elevated()
@@ -196,6 +198,7 @@ class L3AgentNotifyAPI(object):
                                                arp_dict)
 
     def del_fip_arp_entry(self, context, arp_dict):
+        LOG.debug('DVR: del_fip_arp_entry arp_dict: %s ', arp_dict)
         self._agent_notification_arp_broadcast(context, 'del_fip_arp_entry',
                                                arp_dict)
 
