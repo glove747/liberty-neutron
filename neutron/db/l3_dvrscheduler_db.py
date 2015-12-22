@@ -142,14 +142,15 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
         if not active_l3_agents:
             LOG.warn(_LW('No active L3 dvr agents found.'))
             return
-        external_network_id = self.get_external_network_id(admin_ctx)
+        external_network_id = self._core_plugin.get_external_network_id(
+            admin_ctx)
         data = {'external_network_id': external_network_id}
         for l3_agent in active_l3_agents:
             try:
-                fip_gateway_port = self.l3plugin. \
-                    create_fip_agent_gw_port_if_not_exists(admin_ctx,
-                                                           external_network_id,
-                                                           l3_agent['host'])
+                fip_gateway_port = self.create_fip_agent_gw_port_if_not_exists(
+                    admin_ctx,
+                    external_network_id,
+                    l3_agent['host'])
                 if fip_gateway_port:
                     data['fip_gateway_port'] = fip_gateway_port
                     self.l3_rpc_notifier.update_fip_gateway(context,
