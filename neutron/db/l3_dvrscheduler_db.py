@@ -583,6 +583,7 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                        HOST_ID: fip_gateway_port[HOST_ID]}
             fixed_ip_ports = self._core_plugin.get_ports(context,
                                                          filters=filters)
+            LOG.debug("DVR: fixed_ip_ports %s.", fixed_ip_ports)
             mac_dict_id[fip_gateway_port['mac_address']] = \
                 [fixed_ip_port['id'] for fixed_ip_port in fixed_ip_ports]
         LOG.debug("DVR: mac_dict_id %s.", mac_dict_id)

@@ -412,27 +412,26 @@ class FipNamespace(namespaces.Namespace):
         fip = arp_dict['floating_ip_address']
         self._update_fip_arp_entry(fip_gateway_port_id, fip, None, 'del')
 
-    def sync_fip_arp_entry(self, context, external_network_id, fip_arp_entry):
+    def sync_fip_arp_entry(self, context, external_network_id,
+                           fip_gateway_port,
+                           fip_arp_entry):
         try:
             LOG.debug("Start sync fip arp entry. external_network_id: %s"
                       " fip_arp_entry: %s",
                       external_network_id,
                       fip_arp_entry)
-            fip_gateway_port = self.plugin_rpc.get_agent_gateway_port(
-                context,
-                external_network_id)
-            if fip_gateway_port:
-                interface_name = self.get_ext_device_name(
+            interface_name = self.get_ext_device_name(
                     fip_gateway_port['id'])
-                LOG.debug("DVR: interface_name: %s, namespace: %s .",
-                          interface_name,
-                          self.get_name())
-                if ip_lib.device_exists(interface_name,
-                                        namespace=self.get_name()):
-                    device = ip_lib.IPDevice(interface_name,
-                                             namespace=self.get_name())
-                    arp_list = self._neigh_list(device)
-                    LOG.debug("DVR: arp_list: %s .", arp_list)
+            LOG.debug("DVR: interface_name: %s, namespace: %s .",
+                      interface_name,
+                      self.get_name())
+            if ip_lib.device_exists(interface_name,
+                                    namespace=self.get_name()):
+                device = ip_lib.IPDevice(interface_name,
+                                         namespace=self.get_name())
+                arp_list = self._neigh_list(device)
+                LOG.debug("DVR: arp_list: %s .", arp_list)
+
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.exception("DVR: Failed updating fip arp entry")
