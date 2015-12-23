@@ -377,15 +377,16 @@ class FipNamespace(namespaces.Namespace):
     def _update_fip_arp_entry(self, fip_gateway_port_id, fip, mac, operation):
         try:
             interface_name = self.get_ext_device_name(fip_gateway_port_id)
+            LOG.debug("DVR: interface_name: %s, namespace: %s .",
+                      interface_name,
+                      self.get_name())
             if ip_lib.device_exists(interface_name, namespace=self.get_name()):
                 device = ip_lib.IPDevice(interface_name,
                                          namespace=self.get_name())
                 if operation == 'add':
-                    device.neigh.delete(fip)
-                    LOG.debug("DVR: deleted fip arp entry, %s .", fip)
                     device.neigh.add(fip, mac)
-                    LOG.debug("DVR: added fip arp entry, %s %s .", fip, mac)
-                elif operation == 'delete':
+                    LOG.debug("DVR: replaced fip arp entry, %s %s .", fip, mac)
+                elif operation == 'del':
                     device.neigh.delete(fip)
                     LOG.debug("DVR: deleted fip arp entry, %s .", fip)
         except Exception:

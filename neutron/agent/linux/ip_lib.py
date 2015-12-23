@@ -763,16 +763,15 @@ class IpNeighCommand(IpDeviceCommandBase):
 
     def delete(self, ip_address, mac_address):
         ip_version = get_ip_version(ip_address)
-        self._as_root([ip_version],
-                      ('del', ip_address,
-                       'lladdr', mac_address,
-                       'dev', self.name))
-
-    def delete(self, ip_address):
-        ip_version = get_ip_version(ip_address)
-        self._as_root([ip_version],
-                      ('del', ip_address,
-                       'dev', self.name))
+        if mac_address:
+            self._as_root([ip_version],
+                          ('del', ip_address,
+                           'lladdr', mac_address,
+                           'dev', self.name))
+        else:
+            self._as_root([ip_version],
+                          ('del', ip_address,
+                           'dev', self.name))
 
     def show(self, ip_version):
         options = [ip_version]
