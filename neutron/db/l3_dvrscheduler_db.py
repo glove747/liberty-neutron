@@ -578,14 +578,19 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
 
         mac_dict_id = {}
         for fip_gateway_port in fip_gateway_ports:
+            host_id = fip_gateway_port[HOST_ID]
             filters = {'admin_state_up': [True],
-                       'status': PORT_STATUS_ACTIVE,
-                       HOST_ID: fip_gateway_port[HOST_ID]}
+                       'status': [PORT_STATUS_ACTIVE],
+                       HOST_ID: [host_id]}
             fixed_ip_ports = self._core_plugin.get_ports(admin_ctx,
                                                          filters=filters)
-            LOG.debug("DVR: fixed_ip_ports %s.", fixed_ip_ports)
-            mac_dict_id[fip_gateway_port['mac_address']] = \
-                [fixed_ip_port['id'] for fixed_ip_port in fixed_ip_ports]
+            if fixed_ip_ports:
+                fixed_ip_port_ids = [fixed_ip_port['id']
+                                     for fixed_ip_port in fixed_ip_ports]
+                LOG.debug("DVR: fixed_ip_ports on %s, %s.",
+                          host_id,
+                          fixed_ip_port_ids)
+                mac_dict_id[fip_gateway_port['mac_address']] = fixed_ip_port_ids
         LOG.debug("DVR: mac_dict_id %s.", mac_dict_id)
 
         filters = {'floating_network_id': external_network_id,
@@ -594,15 +599,16 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
         LOG.debug("DVR: floatingips %s.", [floatingip['floating_ip_address']
                                            for floatingip in floatingips])
         fip_arp_entry = []
-        for floatingip in floatingips:
-            for k, v in six.iteritems(mac_dict_id):
-                if floatingip['port_id'] in v:
-                    arp_dict = {
-                        'floating_ip_address':
-                            floatingip['floating_ip_address'],
-                        'mac_address': k
-                    }
-                    fip_arp_entry.append(arp_dict)
+        if floatingips and mac_dict_id:
+            for floatingip in floatingips:
+                for k, v in six.iteritems(mac_dict_id):
+                    if floatingip['port_id'] in v:
+                        arp_dict = {
+                            'floating_ip_address':
+                                floatingip['floating_ip_address'],
+                            'mac_address': k
+                        }
+                        fip_arp_entry.append(arp_dict)
         LOG.debug("DVR: Retrun fip_arp_entry %s to %s.",
                   fip_arp_entry,
                   host)

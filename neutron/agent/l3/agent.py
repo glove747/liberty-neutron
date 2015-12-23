@@ -718,8 +718,6 @@ class L3NATAgentWithStateReport(L3NATAgent):
 
         self.pd.after_start()
 
-        self.sync_fip_arp_entry()
-
     def agent_updated(self, context, payload):
         """Handle the agent_updated notification event."""
         self.fullsync = True
