@@ -83,26 +83,26 @@ class AgentMixin(object):
         ri._update_arp_entry(ip, mac, subnet_id, 'delete')
 
     def add_fip_arp_entry(self, context, data):
-        """ 1. associate fip """
+        """ ARP-1 associate fip """
         external_network_id = data['external_network_id']
         fip_gateway_port_id = data['fip_gateway_port_id']
         arp_dict = data['arp_dict']
         fip_ns = self.get_fip_ns(external_network_id)
         ip = ip_lib.IPWrapper(namespace=fip_ns.get_name())
-        # 3. do not have fip-xxx ns
+        # ARP.3 do not have fip-xxx ns
         if ip.netns.exists(fip_ns.get_name()):
             fip_ns.add_fip_arp_entry(fip_gateway_port_id, arp_dict)
         else:
             LOG.error("fip namespace not found, %s .", fip_ns.get_name())
 
     def del_fip_arp_entry(self, context, data):
-        """ 2. disassociate fip """
+        """ ARP-2 disassociate fip """
         external_network_id = data['external_network_id']
         fip_gateway_port_id = data['fip_gateway_port_id']
         arp_dict = data['arp_dict']
         fip_ns = self.get_fip_ns(external_network_id)
         ip = ip_lib.IPWrapper(namespace=fip_ns.get_name())
-        # 3. do not have fip-xxx ns
+        # ARP-3 do not have fip-xxx ns
         if ip.netns.exists(fip_ns.get_name()):
             fip_ns.del_fip_arp_entry(fip_gateway_port_id, arp_dict)
 

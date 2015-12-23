@@ -207,6 +207,17 @@ class L3RpcCallback(object):
                   net_id)
         return net_id
 
+    def get_fip_arp_entry(self, context, **kwargs):
+        """Get one fip arp entry for l3 agent.
+        """
+        context = neutron_context.get_admin_context()
+        host = kwargs.get('host')
+        fip_arp_entry = self.l3plugin.get_fip_arp_entry(context, host)
+        LOG.debug("Fip arp entry %s returned to l3 agent: %s",
+                  fip_arp_entry,
+                  host)
+        return fip_arp_entry
+
     def get_service_plugin_list(self, context, **kwargs):
         plugins = manager.NeutronManager.get_service_plugins()
         return plugins.keys()

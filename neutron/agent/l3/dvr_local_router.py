@@ -479,6 +479,8 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                     LOG.error(_LE('Missing subnet/agent_gateway_port'))
                 else:
                     self.fip_ns.create_gateway_port(fip_agent_port)
+                    # ARP-5 fip-xxx recreate
+                    self.agent.sync_fip_arp_entry()
 
             if (self.fip_ns.agent_gateway_port and
                     (self.dist_fip_count == 0 or is_first)):

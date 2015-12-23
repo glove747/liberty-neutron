@@ -106,6 +106,12 @@ class L3PluginApi(object):
         cctxt = self.client.prepare()
         return cctxt.call(context, 'get_external_network_id', host=self.host)
 
+    def get_fip_arp_entry(self, context):
+        """Make a remote process call to retrieve the fip arp entry.
+        """
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'get_fip_arp_entry', host=self.host)
+
     def update_floatingip_statuses(self, context, router_id, fip_statuses):
         """Call the plugin update floating IPs's operational status."""
         cctxt = self.client.prepare(version='1.1')
@@ -552,6 +558,12 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         except n_exc.AbortSyncRouters:
             self.fullsync = True
 
+        try:
+            self._sync_fip_arp_entry()
+        except Exception:
+            with excutils.save_and_reraise_exception(reraise=False):
+                LOG.exception("DVR: Failed sync fip arp entry.")
+
     def fetch_and_sync_all_routers(self, context, ns_manager):
         prev_router_ids = set(self.router_info)
         timestamp = timeutils.utcnow()
@@ -683,6 +695,8 @@ class L3NATAgentWithStateReport(L3NATAgent):
 
         self.pd.after_start()
 
+        self._sync_fip_arp_entry()
+
     def agent_updated(self, context, payload):
         """Handle the agent_updated notification event."""
         self.fullsync = True
@@ -705,3 +719,16 @@ class L3NATAgentWithStateReport(L3NATAgent):
                 if new_fixed_ip_count != old_fixed_ip_count:
                     fip_ns.update_gateway_port(fip_gateway_port)
                     fip_ns.update_fip_gateway_rule(fip_gateway_port)
+
+    def sync_fip_arp_entry(self):
+        # ARP-4 fip-xxx missed some arp
+        external_network_id = self._fetch_external_net_id(force=True)
+        fip_ns = self.get_fip_ns(external_network_id)
+        ip = ip_lib.IPWrapper(namespace=fip_ns.get_name())
+
+        if ip.netns.exists(fip_ns.get_name()):
+            fip_arp_entry = self.plugin_rpc.get_fip_arp_entry(self.context)
+            fip_ns.sync_fip_arp_entry(self.context,
+                                      external_network_id,
+                                      fip_arp_entry)
+            LOG.debug("Finish sync fip arp entry. fip_ns: %s", fip_ns)
