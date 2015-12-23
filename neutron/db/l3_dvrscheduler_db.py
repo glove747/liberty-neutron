@@ -581,7 +581,7 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
             filters = {'admin_state_up': [True],
                        'status': PORT_STATUS_ACTIVE,
                        HOST_ID: fip_gateway_port[HOST_ID]}
-            fixed_ip_ports = self._core_plugin.get_ports(context,
+            fixed_ip_ports = self._core_plugin.get_ports(admin_ctx,
                                                          filters=filters)
             LOG.debug("DVR: fixed_ip_ports %s.", fixed_ip_ports)
             mac_dict_id[fip_gateway_port['mac_address']] = \
@@ -590,7 +590,7 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
 
         filters = {'floating_network_id': external_network_id,
                    'status': FLOATINGIP_STATUS_ACTIVE}
-        floatingips = self.get_floatingips(context, filters)
+        floatingips = self.get_floatingips(admin_ctx, filters)
         LOG.debug("DVR: floatingips %s.", [floatingip['floating_ip_address']
                                            for floatingip in floatingips])
         fip_arp_entry = []
