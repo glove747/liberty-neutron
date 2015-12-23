@@ -387,7 +387,7 @@ class FipNamespace(namespaces.Namespace):
                     device.neigh.add(fip, mac)
                     LOG.debug("DVR: replaced fip arp entry, %s %s .", fip, mac)
                 elif operation == 'del':
-                    device.neigh.delete(fip)
+                    device.neigh.delete(fip, mac)
                     LOG.debug("DVR: deleted fip arp entry, %s .", fip)
         except Exception:
             with excutils.save_and_reraise_exception():
