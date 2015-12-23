@@ -593,8 +593,8 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                 mac_dict_id[fip_gateway_port['mac_address']] = fixed_ip_port_ids
         LOG.debug("DVR: mac_dict_id %s.", mac_dict_id)
 
-        filters = {'floating_network_id': external_network_id,
-                   'status': FLOATINGIP_STATUS_ACTIVE}
+        filters = {'floating_network_id': [external_network_id],
+                   'status': [FLOATINGIP_STATUS_ACTIVE]}
         floatingips = self.get_floatingips(admin_ctx, filters)
         LOG.debug("DVR: floatingips %s.", [floatingip['floating_ip_address']
                                            for floatingip in floatingips])

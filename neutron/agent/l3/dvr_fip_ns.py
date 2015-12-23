@@ -15,6 +15,7 @@
 import os
 import traceback
 
+import netaddr
 from oslo_utils import excutils
 
 from neutron.agent.l3 import fip_rule_priority_allocator as frpa
@@ -429,9 +430,31 @@ class FipNamespace(namespaces.Namespace):
                                     namespace=self.get_name()):
                 device = ip_lib.IPDevice(interface_name,
                                          namespace=self.get_name())
-                arp_list = self._neigh_list(device)
-                LOG.debug("DVR: arp_list: %s .", arp_list)
+                local_fip_arp_entry = self._neigh_list(device)
+                LOG.debug("DVR: local_fip_arp_entry: %s .", local_fip_arp_entry)
+                self._apply_fip_arp_entry(device, fip_arp_entry,
+                                          local_fip_arp_entry)
 
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.exception("DVR: Failed updating fip arp entry")
+
+    def _apply_fip_arp_entry(self, device, fip_arp_entry, local_fip_arp_entry):
+        for arp in fip_arp_entry:
+            fip = arp['floating_ip_address']
+            mac = arp['mac_address']
+            device.neigh.add(fip, mac)
+            LOG.debug("DVR: applied fip arp entry, %s %s .", fip, mac)
+        fip_arp_entry_ids = [fip_arp['floating_ip_address']
+                             for fip_arp in fip_arp_entry]
+        LOG.debug("DVR: fip_arp_entry_ids: %s .", fip_arp_entry_ids)
+        for fip in local_fip_arp_entry:
+            try:
+                if netaddr.valid_ipv4(fip) or netaddr.valid_ipv6(fip):
+                    # TODO(nanzhang) all fg-xxx device's arps not in fip_arp
+                    # will be deleted
+                    if fip not in fip_arp_entry_ids:
+                        device.neigh.delete(fip, None)
+                        LOG.debug("DVR: cleaned fip arp entry, %s .", fip)
+            except Exception:
+                pass
