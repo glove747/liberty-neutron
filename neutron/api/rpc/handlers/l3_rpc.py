@@ -256,18 +256,18 @@ class L3RpcCallback(object):
     def _notify_fip_update(self, context, fip_statuses):
         floating_ips = []
         for (floatingip_id, status) in six.iteritems(fip_statuses):
-            LOG.debug("New status for floating IP %(floatingip_id)s: "
-                      "%(status)s", {'floatingip_id': floatingip_id,
-                                     'status': status})
             try:
                 floating_ips.append(self.l3plugin.get_floatingip(context,
                                                                  floatingip_id))
             except l3.FloatingIPNotFound:
-                LOG.debug("Floating IP: %s no longer present.",
-                          floatingip_id)
+                LOG.error("Floating IP: %s no longer present.", floatingip_id)
+
         kwargs = {'context': context, 'floating_ips': floating_ips}
-        registry.notify(resources.FLOATINGIP, events.AFTER_UPDATE, self,
+        registry.notify(resources.FLOATINGIP,
+                        events.AFTER_UPDATE,
+                        self,
                         **kwargs)
+        LOG.error("Floating IP: notified %s .", floating_ips)
 
     def get_ports_by_subnet(self, context, **kwargs):
         """DVR: RPC called by dvr-agent to get all ports for subnet."""

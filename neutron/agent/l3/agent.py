@@ -558,12 +558,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         except n_exc.AbortSyncRouters:
             self.fullsync = True
 
-        try:
-            self.sync_fip_arp_entry()
-        except Exception:
-            with excutils.save_and_reraise_exception(reraise=False):
-                LOG.exception("DVR: Failed sync fip arp entry.")
-
     def fetch_and_sync_all_routers(self, context, ns_manager):
         prev_router_ids = set(self.router_info)
         timestamp = timeutils.utcnow()
@@ -625,27 +619,25 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         self._queue.add(update)
 
     def sync_fip_arp_entry(self):
-        # ARP-4 fip-xxx missed some arp
         LOG.debug("Start sync fip arp entry.")
         external_network_id = \
             self.plugin_rpc.get_external_network_id(self.context)
         LOG.debug("external_network_id: %s .", external_network_id)
         fip_ns = self.get_fip_ns(external_network_id)
-        if fip_ns:
-            ip = ip_lib.IPWrapper(namespace=fip_ns.get_name())
+        ip = ip_lib.IPWrapper(namespace=fip_ns.get_name())
+        if ip.netns.exists(fip_ns.get_name()):
+            fip_gateway_port = self.plugin_rpc.get_agent_gateway_port(
+                self.context,
+                external_network_id)
+            fip_arp_entry = self.plugin_rpc.get_fip_arp_entry(self.context)
+            fip_ns.sync_fip_arp_entry(self.context,
+                                      external_network_id,
+                                      fip_gateway_port,
+                                      fip_arp_entry)
+            LOG.debug("Finish sync fip arp entry. fip_ns: %s", fip_ns)
+        else:
+            LOG.debug("fip namespace not found, %s.", fip_ns.get_name())
 
-            if ip.netns.exists(fip_ns.get_name()):
-                fip_gateway_port = self.plugin_rpc.get_agent_gateway_port(
-                    self.context,
-                    external_network_id)
-                fip_arp_entry = self.plugin_rpc.get_fip_arp_entry(self.context)
-                fip_ns.sync_fip_arp_entry(self.context,
-                                          external_network_id,
-                                          fip_gateway_port,
-                                          fip_arp_entry)
-                LOG.debug("Finish sync fip arp entry. fip_ns: %s", fip_ns)
-            else:
-                LOG.debug("fip_ns not found %s.", fip_ns.get_name())
 
 
 class L3NATAgentWithStateReport(L3NATAgent):
@@ -718,6 +710,9 @@ class L3NATAgentWithStateReport(L3NATAgent):
 
         self.pd.after_start()
 
+        # ARP-4 fip-xxx probable missed some arp
+        self.sync_fip_arp_entry()
+
     def agent_updated(self, context, payload):
         """Handle the agent_updated notification event."""
         self.fullsync = True
@@ -733,10 +728,10 @@ class L3NATAgentWithStateReport(L3NATAgent):
             if fip_ns.agent_gateway_port:
                 new_fixed_ip_count = len(fip_gateway_port['fixed_ips'])
                 old_fixed_ip_count = len(fip_ns.agent_gateway_port['fixed_ips'])
-                LOG.debug("FloatingIP agent gateway port "
-                          " new_subnet_count: %s"
-                          " old_subnet_count: %s", new_fixed_ip_count
-                          , old_fixed_ip_count)
+                LOG.debug("DVR: FloatingIP agent gateway port "
+                          " new_subnet_count: %s, old_subnet_count: %s",
+                          new_fixed_ip_count,
+                          old_fixed_ip_count)
                 if new_fixed_ip_count != old_fixed_ip_count:
                     fip_ns.update_gateway_port(fip_gateway_port)
                     fip_ns.update_fip_gateway_rule(fip_gateway_port)

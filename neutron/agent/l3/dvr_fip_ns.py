@@ -315,37 +315,35 @@ class FipNamespace(namespaces.Namespace):
             ri.dist_fip_count = len(fip_cidrs)
 
     def update_fip_gateway_rule(self, fip_agent_port):
-        # update subnet rule and rule table
+        # update fip namespace fip rules
         try:
-            LOG.debug("DVR: update fip-xxx ns subnets's rule")
+            LOG.debug("DVR: update fip namespace fip rules")
             subnet_ids = [fixed_ip['subnet_id'] for
                           fixed_ip in fip_agent_port['fixed_ips']]
             rule_table_keys = self.rule_table_keys()
-            LOG.debug('subnet_ids: %s, rule_table_keys: %s',
+            LOG.debug('DVR: subnet_ids: %s, rule_table_keys: %s',
                       subnet_ids,
                       rule_table_keys)
             for subnet_id in rule_table_keys:
-                # to delete
+                # rule to delete
                 if subnet_id not in subnet_ids:
                     try:
                         LOG.debug("DVR: del fipns subnets's rule, "
                                   "subnet_id: %s", subnet_id)
                         priority = str(self.rule_table_allocate(subnet_id))
                         self._delete_fip_gateway_rule(priority)
-
                         fip_fg_name = self. \
                             get_ext_device_name(fip_agent_port['id'])
                         fip_ns_name = self.get_name()
-                        device = ip_lib.IPDevice(fip_fg_name,
-                                                 namespace=fip_ns_name)
-                        gateway = device.route.get_gateway()
-                        if gateway:
-                            gateway = gateway.get('gateway')
-                            try:
+                        if ip_lib.device_exists(fip_fg_name,
+                                                namespace=fip_ns_name):
+                            device = ip_lib.IPDevice(fip_fg_name,
+                                                     namespace=fip_ns_name)
+                            gateway = device.route.get_gateway()
+                            if gateway:
+                                gateway = gateway.get('gateway')
                                 device.route.delete_gateway(gateway,
                                                             table=priority)
-                            except n_exc.DeviceNotFoundError:
-                                pass
                         self.rule_table_deallocate(subnet_id)
                     except Exception:
                         err_msg = "del_fip_gateway_rule error %s" % \
@@ -362,7 +360,7 @@ class FipNamespace(namespaces.Namespace):
             fip_ns_name = self.get_name()
             ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
             rules = ip_rule.rule.list_rules(ip_version)
-            LOG.debug("DVR: ip %s rules: %s, priority: %s",
+            LOG.debug("DVR: to delete rule ip %s rules: %s, priority: %s",
                       ip_version, rules, priority)
             if rules:
                 to_delete_rules = filter(lambda x:
@@ -416,11 +414,11 @@ class FipNamespace(namespaces.Namespace):
     def sync_fip_arp_entry(self, context, external_network_id,
                            fip_gateway_port,
                            fip_arp_entry):
+        LOG.debug("Start sync fip arp entry. external_network_id: %s"
+                  " fip_arp_entry: %s",
+                  external_network_id,
+                  fip_arp_entry)
         try:
-            LOG.debug("Start sync fip arp entry. external_network_id: %s"
-                      " fip_arp_entry: %s",
-                      external_network_id,
-                      fip_arp_entry)
             interface_name = self.get_ext_device_name(
                     fip_gateway_port['id'])
             LOG.debug("DVR: interface_name: %s, namespace: %s .",
@@ -432,12 +430,15 @@ class FipNamespace(namespaces.Namespace):
                                          namespace=self.get_name())
                 local_fip_arp_entry = self._neigh_list(device)
                 LOG.debug("DVR: local_fip_arp_entry: %s .", local_fip_arp_entry)
-                self._apply_fip_arp_entry(device, fip_arp_entry,
+                self._apply_fip_arp_entry(device,
+                                          fip_arp_entry,
                                           local_fip_arp_entry)
+            else:
+                LOG.debug("fip namespace not found, %s.", self.get_name())
 
         except Exception:
             with excutils.save_and_reraise_exception():
-                LOG.exception("DVR: Failed updating fip arp entry")
+                LOG.exception("DVR: Failed sync fip arp entry")
 
     def _apply_fip_arp_entry(self, device, fip_arp_entry, local_fip_arp_entry):
         for arp in fip_arp_entry:
@@ -445,15 +446,14 @@ class FipNamespace(namespaces.Namespace):
             mac = arp['mac_address']
             device.neigh.add(fip, mac)
             LOG.debug("DVR: applied fip arp entry, %s %s .", fip, mac)
-        fip_arp_entry_ids = [fip_arp['floating_ip_address']
-                             for fip_arp in fip_arp_entry]
-        LOG.debug("DVR: fip_arp_entry_ids: %s .", fip_arp_entry_ids)
+        fips = [fip_arp['floating_ip_address'] for fip_arp in fip_arp_entry]
+        LOG.debug("DVR: fips: %s .", fips)
         for fip in local_fip_arp_entry:
             try:
                 if netaddr.valid_ipv4(fip) or netaddr.valid_ipv6(fip):
                     # TODO(nanzhang) all fg-xxx device's arps not in fip_arp
                     # will be deleted
-                    if fip not in fip_arp_entry_ids:
+                    if fip not in fips:
                         device.neigh.delete(fip, None)
                         LOG.debug("DVR: cleaned fip arp entry, %s .", fip)
             except Exception:
