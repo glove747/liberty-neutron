@@ -634,7 +634,8 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                                       external_network_id,
                                       fip_gateway_port,
                                       fip_arp_entry)
-            LOG.debug("Finish sync fip arp entry. fip_ns: %s", fip_ns)
+            LOG.debug("Finish sync fip arp entry. fip_ns: %s",
+                      fip_ns.get_name())
         else:
             LOG.debug("fip namespace not found, %s.", fip_ns.get_name())
 
