@@ -610,13 +610,18 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
         if floatingips and mac_dict_id:
             for floatingip in floatingips:
                 for k, v in six.iteritems(mac_dict_id):
-                    if floatingip['port_id'] in v:
-                        arp_dict = {
-                            'floating_ip_address':
-                                floatingip['floating_ip_address'],
-                            'mac_address': k
-                        }
-                        fip_arp_entry.append(arp_dict)
+                    try:
+                        if floatingip['port_id'] in v:
+                            arp_dict = {
+                                'floating_ip_address':
+                                    floatingip['floating_ip_address'],
+                                'mac_address': k
+                            }
+                            fip_arp_entry.append(arp_dict)
+                    except Exception:
+                        with excutils.save_and_reraise_exception(reraise=False):
+                            LOG.exception("DVR: floatingip get port_id error,"
+                                          " %s", floatingip)
         LOG.debug("DVR: Retrun fip_arp_entry %s to %s.",
                   fip_arp_entry,
                   host)
