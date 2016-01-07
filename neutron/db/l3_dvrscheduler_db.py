@@ -485,14 +485,14 @@ def _notify_port_delete(event, resource, trigger, **kwargs):
 def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
     new_port = kwargs.get('port')
     original_port = kwargs.get('original_port')
+    l3plugin = manager.NeutronManager.get_service_plugins().get(
+        service_constants.L3_ROUTER_NAT)
+    context = kwargs['context']
 
     if new_port and original_port:
         original_device_owner = original_port.get('device_owner', '')
         if (original_device_owner.startswith('compute') and
-            not new_port.get('device_owner')):
-            l3plugin = manager.NeutronManager.get_service_plugins().get(
-                service_constants.L3_ROUTER_NAT)
-            context = kwargs['context']
+                not new_port.get('device_owner')):
             removed_routers = l3plugin.dvr_deletens_if_no_port(
                 context,
                 original_port['id'],
@@ -506,8 +506,17 @@ def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
                 _notify_port_delete(
                     event, resource, trigger, **removed_router_args)
             return
-
-    _notify_l3_agent_new_port(resource, event, trigger, **kwargs)
+    elif not new_port and original_port:
+        original_device_owner = original_port.get('device_owner', '')
+        if original_device_owner == n_const.DEVICE_OWNER_FLOATINGIP:
+            fip_id = original_port.get('device_id', '')
+            fip = l3plugin.get_floatingip(context, fip_id)
+            router_id = fip.get('router_id', '')
+            if router_id:
+                l3plugin.notify_router_updated(context, router_id,
+                                               'port_update')
+    else:
+        _notify_l3_agent_new_port(resource, event, trigger, **kwargs)
 
 
 def subscribe():

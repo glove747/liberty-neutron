@@ -78,3 +78,7 @@ class QosBandwidthLimitRule(models_v2.HasId, model_base.BASEV2):
                               unique=True)
     max_kbps = sa.Column(sa.Integer)
     max_burst_kbps = sa.Column(sa.Integer)
+    ingress_max_kbps = sa.Column(sa.Integer)
+    ingress_max_burst_kbps = sa.Column(sa.Integer)
+    egress_max_kbps = sa.Column(sa.Integer)
+    egress_max_burst_kbps = sa.Column(sa.Integer)

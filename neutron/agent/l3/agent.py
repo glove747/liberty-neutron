@@ -117,6 +117,12 @@ class L3PluginApi(object):
         return cctxt.call(context, 'get_ports_by_subnet', host=self.host,
                           subnet_id=subnet_id)
 
+    def get_policy_by_id(self, context, id, fields=None):
+        """Retrieve policy by policy id."""
+        cctxt = self.client.prepare(version='1.2')
+        return cctxt.call(context, 'get_policy_by_id', host=self.host,
+                          id=id, fields=fields)
+
     def get_agent_gateway_port(self, context, fip_net):
         """Get or create an agent_gateway_port."""
         cctxt = self.client.prepare(version='1.2')

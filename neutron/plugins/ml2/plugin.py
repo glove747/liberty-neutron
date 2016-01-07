@@ -59,6 +59,7 @@ from neutron.db.quota import driver  # noqa
 from neutron.db import securitygroups_db
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.db import vlantransparent_db
+from neutron.db.qos import dvr_policy_db
 from neutron.extensions import allowedaddresspairs as addr_pair
 from neutron.extensions import extra_dhcp_opt as edo_ext
 from neutron.extensions import portbindings
@@ -93,7 +94,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 vlantransparent_db.Vlantransparent_db_mixin,
                 extradhcpopt_db.ExtraDhcpOptMixin,
                 netmtu_db.Netmtu_db_mixin,
-                address_scope_db.AddressScopeDbMixin):
+                address_scope_db.AddressScopeDbMixin,
+                dvr_policy_db.DVR_policy_db_mixin):
 
     """Implement the Neutron L2 abstractions using modules.
 
