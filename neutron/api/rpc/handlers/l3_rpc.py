@@ -20,15 +20,14 @@ from oslo_serialization import jsonutils
 import six
 
 from neutron.callbacks import events
-from neutron.callbacks import exceptions
 from neutron.callbacks import registry
 from neutron.callbacks import resources
-from neutron.common import constants
 from neutron.common import exceptions
 from neutron.common import utils
 from neutron import context as neutron_context
-from neutron.common.constants import FLOATINGIP_STATUS_ACTIVE
 from neutron.db import api as db_api
+from neutron.db.metering import metering_db
+from neutron.common import constants
 from neutron.extensions import l3
 from neutron.extensions import portbindings
 from neutron.i18n import _LE
@@ -37,7 +36,6 @@ from neutron.plugins.common import constants as plugin_constants
 
 
 LOG = logging.getLogger(__name__)
-
 
 class L3RpcCallback(object):
     """L3 agent RPC callback in plugin implementations."""
@@ -136,10 +134,10 @@ class L3RpcCallback(object):
     def _ensure_host_set_on_port(self, context, host, port, router_id=None,
                                  ha_router_port=False):
         if (port and host is not None and
-            (port.get('device_owner') !=
+            (port.get('device_owner') != 
              constants.DEVICE_OWNER_DVR_INTERFACE and
              port.get(portbindings.HOST_ID) != host or
-             port.get(portbindings.VIF_TYPE) ==
+             port.get(portbindings.VIF_TYPE) == 
              portbindings.VIF_TYPE_BINDING_FAILED)):
 
             # Ports owned by non-HA routers are bound again if they're
@@ -183,7 +181,7 @@ class L3RpcCallback(object):
                                   "agent binding for router %(router)s.",
                                   {"port": port['id'], "router": router_id})
         elif (port and
-              port.get('device_owner') ==
+              port.get('device_owner') == 
               constants.DEVICE_OWNER_DVR_INTERFACE):
             # Ports that are DVR interfaces have multiple bindings (based on
             # of hosts on which DVR router interfaces are spawned). Such
@@ -250,6 +248,33 @@ class L3RpcCallback(object):
             for fip_id in fips_to_disable:
                 self.l3plugin.update_floatingip_status(
                     context, fip_id, constants.FLOATINGIP_STATUS_DOWN)
+            metering_plugin = metering_db._get_plugin(context, plugin_constants.METERING)
+            if metering_plugin:
+                for fip_id in fip_statuses.keys():
+                    fip = self.l3plugin.get_floatingip(context, fip_id)
+                    if fip_statuses[fip_id] == constants.FLOATINGIP_STATUS_ACTIVE:
+                        metering_db.create_metering_label_and_rule_if_not_exist(context, metering_plugin,
+                                                fip['tenant_id'], fip['floating_ip_address'],
+                                                fip['floating_ip_address'])
+                    elif fip_statuses[fip_id] == constants.FLOATINGIP_STATUS_DOWN:
+                        metering_db.delete_metering_label_and_rule_if_exist(context,
+                                                            metering_plugin, fip['floating_ip_address'])
+         
+    def update_router_gateway_statuses(self, context, router, gateway_statuses):
+        """triger add metering to floatingip or ex_gw"""
+        with context.session.begin(subtransactions=True):
+            metering_plugin = metering_db._get_plugin(context, plugin_constants.METERING)
+            if metering_plugin:
+                if gateway_statuses == constants.ROUTER_GATEWAY_STATUS_ACTIVE:
+                    gw_port = metering_plugin._core_plugin.get_port(
+                                           context.elevated(), router['gw_port_id'])
+                    ip_prefix = ""
+                    for fixed_ip in gw_port['fixed_ips']:
+                        ip_prefix = fixed_ip['ip_address']
+                    metering_db.create_metering_label_and_rule_if_not_exist(context, metering_plugin,
+                                                             router['tenant_id'], router['id'], ip_prefix)
+                elif gateway_statuses == constants.ROUTER_GATEWAY_STATUS_DOWN:
+                    metering_db.delete_metering_label_and_rule_if_exist(context, metering_plugin, router['id'])
 
             self._notify_fip_update(context, fip_statuses)
 

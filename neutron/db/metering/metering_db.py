@@ -25,6 +25,11 @@ from neutron.db import common_db_mixin as base_db
 from neutron.db import l3_db
 from neutron.db import model_base
 from neutron.db import models_v2
+from neutron import manager
+from neutron.plugins.common import constants as plugin_constants
+from neutron.common import utils as n_utils
+from neutron.extensions import portbindings
+from oslo_config import cfg
 from neutron.extensions import metering
 
 
@@ -60,6 +65,10 @@ class MeteringDbMixin(metering.MeteringPluginBase,
 
     def __init__(self):
         self.meter_rpc = metering_rpc_agent_api.MeteringAgentNotifyAPI()
+
+    @property
+    def _core_plugin(self):
+        return manager.NeutronManager.get_plugin()
 
     def _make_metering_label_dict(self, metering_label, fields=None):
         res = {'id': metering_label['id'],
@@ -99,7 +108,10 @@ class MeteringDbMixin(metering.MeteringPluginBase,
             raise metering.MeteringLabelNotFound(label_id=label_id)
 
         return self._make_metering_label_dict(metering_label, fields)
-
+    
+    def get_metering_labels_by_name(self, context, label_name):
+        return context.session.query(MeteringLabel).filter_by(name=label_name)
+          
     def get_metering_labels(self, context, filters=None, fields=None,
                             sorts=None, limit=None, marker=None,
                             page_reverse=False):
@@ -208,11 +220,66 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                constants.METERING_LABEL_KEY: []}
 
         return res
+    
+    def get_port_by_floatingip(self, context, **kwargs):
+        """METERING: RPC called by metering-agent to get port for floatingip."""
+        floating_ip = kwargs.get('floating_ip')
+        LOG.debug("DVR: floatingip.ip_address: %s", floating_ip)
+        filters = {
+            'device_owner': [constants.DEVICE_OWNER_FLOATINGIP],
+            'fixed_ips': {'ip_address': [floating_ip]}
+        }
+        ports = self._core_plugin.get_ports(context, filters=filters)
+        if ports and len(ports) == 1:
+            return ports[0]
+        else:
+            LOG.error("get_port_by_floatingip found not single, "
+                      "floating_ip: %s, ports: %s", floating_ip, ports)
+    
+    def get_fg_port_by_owner(self, context, **kwargs):
+        """METERING: RPC called by metering-agent to get fg port by owner."""
+        device_owner = kwargs.get('device_owner')
+        LOG.debug("Metering: fg port owner is %s", device_owner)
+        filters = {
+            'device_owner': [device_owner],
+        }
+        ports = self._core_plugin.get_ports(context, filters=filters)
+        if ports and len(ports) == 1:
+            return ports[0]
+        else:
+            LOG.error("get fg port not found or not single, "
+                      "fg ports: %s", ports)
 
+    @property
+    def l3plugin(self):
+        if not hasattr(self, '_l3plugin'):
+            self._l3plugin = manager.NeutronManager.get_service_plugins()[
+                plugin_constants.L3_ROUTER_NAT]
+        return self._l3plugin
+    
+    def _get_label_host(self, context, label):
+        hostid = ''
+        fip = label['name']
+        fip_port = self.get_port_by_floatingip(context, floating_ip=fip)
+        if fip_port:
+            fip_detail = self.l3plugin.get_floatingip(context, fip_port['device_id'])
+            fixed_port_id = fip_detail['port_id']
+            if fixed_port_id:
+                vm_port_db = self._core_plugin.get_port(context, fixed_port_id)
+                hostid = vm_port_db[portbindings.HOST_ID] if vm_port_db else ""
+        return hostid
+    
+    def _get_ex_net_id(self, context, router):
+        gw_port_id = router['gw_port_id']
+        if gw_port_id:
+            gw_port = self._core_plugin.get_port(context.elevated(), router['gw_port_id'])
+            return gw_port['network_id']
+        else:
+            return None
     def _process_sync_metering_data(self, context, labels):
         all_routers = None
-
         routers_dict = {}
+        hostid = ''
         for label in labels:
             if label.shared:
                 if not all_routers:
@@ -221,36 +288,44 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                 routers = all_routers
             else:
                 routers = label.routers
-
+            if cfg.CONF.router_distributed:
+                try:
+                    hostid = self._get_label_host(context, label)
+                except Exception:
+                    LOG.error("TCLOUD metering-agent process sync metering data failed in dvr mode.")
             for router in routers:
                 router_dict = routers_dict.get(
                     router['id'],
                     self._make_router_dict(router))
-
                 rules = self._get_metering_rules_dict(label)
-
-                data = {'id': label['id'], 'rules': rules}
+                data = {'id': label['id'], 'name': label.name, 'host': hostid, 'rules': rules}
                 router_dict[constants.METERING_LABEL_KEY].append(data)
-
+                ex_net_id = self._get_ex_net_id(context, router)
+                router_dict['ex_net_id'] = ex_net_id
                 routers_dict[router['id']] = router_dict
-
         return list(routers_dict.values())
 
     def get_sync_data_for_rule(self, context, rule):
         label = context.session.query(MeteringLabel).get(
             rule['metering_label_id'])
-
+        hostid = ''
         if label.shared:
             routers = self._get_collection_query(context, l3_db.Router)
         else:
             routers = label.routers
-
+        if cfg.CONF.router_distributed:
+                try:
+                    hostid = self._get_label_host(context, label)
+                except Exception:
+                    LOG.error("TCLOUD metering-agent process sync metering rule data failed in dvr mode.")
         routers_dict = {}
         for router in routers:
             router_dict = routers_dict.get(router['id'],
                                            self._make_router_dict(router))
-            data = {'id': label['id'], 'rule': rule}
+            data = {'id': label['id'], 'name': label.name, 'host': hostid, 'rule': rule}
             router_dict[constants.METERING_LABEL_KEY].append(data)
+            ex_net_id = self._get_ex_net_id(context, router)
+            router_dict['ex_net_id'] = ex_net_id
             routers_dict[router['id']] = router_dict
 
         return list(routers_dict.values())
@@ -263,5 +338,56 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         elif router_ids:
             labels = (labels.join(MeteringLabel.routers).
                       filter(l3_db.Router.id.in_(router_ids)))
-
         return self._process_sync_metering_data(context, labels)
+    
+def _get_plugin(context, plugin):
+    service_plugins = manager.NeutronManager.get_service_plugins()
+    if plugin not in service_plugins:
+        LOG.debug("Plugin could not be found: %s" , plugin)
+        return None
+    return service_plugins.get(plugin)
+    
+def create_metering_label_and_rule_if_not_exist(context, metering_plugin, tenant_id, label_name, ip_prefix):
+    labels = metering_plugin.get_metering_labels_by_name(context, label_name)
+    for label in labels:
+        return
+    metering_label = _get_metering_label_dict(tenant_id, label_name)
+    label = metering_plugin.create_metering_label(context, metering_label)
+    if label:
+        metering_label_rules = _get_metering_label_rule_dict(ip_prefix, label)
+        for metering_label_rule in metering_label_rules:
+            metering_plugin.create_metering_label_rule(context, metering_label_rule)
+          
+
+def delete_metering_label_and_rule_if_exist(context, metering_plugin, label_name):
+    labels = metering_plugin.get_metering_labels_by_name(context, label_name)
+    if labels:
+        for label in labels:
+            metering_plugin.delete_metering_label(context, label['id'])
+
+def _get_metering_label_dict(tenant_id, label_name):
+    label = {}
+    metering_label = {}
+    label['shared'] = False
+    label['tenant_id'] = tenant_id
+    label['name'] = label_name
+    label['description'] = ""
+    metering_label['metering_label'] = label
+    return metering_label
+
+def _get_metering_label_rule_dict(ip_prefix, label):
+    metering_label_rules = []
+    directions = []
+    directions.append('ingress')
+    directions.append('egress')
+    for direction in directions:
+        metering_label_rule = {}
+        label_rule = {}
+        label_rule['remote_ip_prefix'] = ip_prefix + '/32'
+        label_rule['direction'] = direction
+        label_rule['metering_label_id'] = label['id']
+        label_rule['excluded'] = False
+        label_rule['tenant_id'] = label['tenant_id']
+        metering_label_rule['metering_label_rule'] = label_rule
+        metering_label_rules.append(metering_label_rule)
+    return metering_label_rules

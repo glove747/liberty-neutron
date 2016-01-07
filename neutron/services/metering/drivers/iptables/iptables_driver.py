@@ -25,12 +25,15 @@ from neutron.common import constants as constants
 from neutron.common import ipv6_utils
 from neutron.i18n import _LE, _LI
 from neutron.services.metering.drivers import abstract_driver
-
+from neutron.agent.linux import ip_lib
 
 LOG = logging.getLogger(__name__)
 NS_PREFIX = 'qrouter-'
+DVR_NS_PREFIX = 'fip-'
+DVR_SNAT_NS_PREFIX = 'snat-'
 WRAP_NAME = 'neutron-meter'
 EXTERNAL_DEV_PREFIX = 'qg-'
+DVR_EXTERNAL_DEV_PREFIX = 'fg-'
 TOP_CHAIN = WRAP_NAME + "-FORWARD"
 RULE = '-r-'
 LABEL = '-l-'
@@ -67,9 +70,16 @@ class RouterWithMetering(object):
 
     def __init__(self, conf, router):
         self.conf = conf
+        if router['node_type'] == "compute":
+            ex_net_id = router['ex_net_id']
+            self.ns_name = DVR_NS_PREFIX + ex_net_id if conf.use_namespaces else None
+        elif router['node_type'] == "network":
+            router_id = router['id']
+            self.ns_name = DVR_SNAT_NS_PREFIX + router_id if conf.use_namespaces else None
+        else:
+            self.ns_name = NS_PREFIX + self.id if conf.use_namespaces else None
         self.id = router['id']
         self.router = router
-        self.ns_name = NS_PREFIX + self.id if conf.use_namespaces else None
         self.iptables_manager = iptables_manager.IptablesManager(
             namespace=self.ns_name,
             binary_name=WRAP_NAME,
@@ -94,6 +104,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     def _update_router(self, router):
         r = self.routers.get(router['id'],
                              RouterWithMetering(self.conf, router))
+        gw_port_id = router['gw_port_id']
         r.router = router
         self.routers[r.id] = r
 
@@ -109,10 +120,12 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
 
         for router in routers:
             old_gw_port_id = None
+            gw_port_id = router['gw_port_id']
+            if not gw_port_id:
+                self.remove_router(context, router['id'])
             old_rm = self.routers.get(router['id'])
             if old_rm:
                 old_gw_port_id = old_rm.router['gw_port_id']
-            gw_port_id = router['gw_port_id']
 
             if gw_port_id != old_gw_port_id:
                 if old_rm:
@@ -131,10 +144,19 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     def get_external_device_name(self, port_id):
         return (EXTERNAL_DEV_PREFIX + port_id)[:self.driver.DEV_NAME_LEN]
 
+    def get_dvr_fg_device_name(self, namespace):
+        ip_wrapper = ip_lib.IPWrapper(namespace=namespace)
+        for d in ip_wrapper.get_devices(exclude_loopback=True):
+            if d.name.startswith(DVR_EXTERNAL_DEV_PREFIX):
+                return d.name
+ 
     def _process_metering_label_rules(self, rm, rules, label_chain,
                                       rules_chain):
         im = rm.iptables_manager
-        ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
+        if rm.router['node_type'] == "compute":
+            ext_dev = self.get_dvr_fg_device_name(rm.ns_name)
+        else:
+            ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
         if not ext_dev:
             return
 
@@ -187,11 +209,12 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
         return ipt_rule
 
     def _process_associate_metering_label(self, router):
+        labels = router.get(constants.METERING_LABEL_KEY, [])
+        if len(labels) == 0:
+            return
         self._update_router(router)
         rm = self.routers.get(router['id'])
-
         with IptablesManagerTransaction(rm.iptables_manager):
-            labels = router.get(constants.METERING_LABEL_KEY, [])
             for label in labels:
                 label_id = label['id']
 
@@ -233,19 +256,20 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
                 label_id = label['id']
                 if label_id not in rm.metering_labels:
                     continue
-
-                label_chain = iptables_manager.get_chain_name(WRAP_NAME +
-                                                              LABEL + label_id,
-                                                              wrap=False)
-                rules_chain = iptables_manager.get_chain_name(WRAP_NAME +
-                                                              RULE + label_id,
-                                                              wrap=False)
-
-                rm.iptables_manager.ipv4['filter'].remove_chain(label_chain,
-                                                                wrap=False)
-                rm.iptables_manager.ipv4['filter'].remove_chain(rules_chain,
-                                                                wrap=False)
-
+                try:
+                    label_chain = iptables_manager.get_chain_name(WRAP_NAME +
+                                                                  LABEL + label_id,
+                                                                  wrap=False)
+                    rules_chain = iptables_manager.get_chain_name(WRAP_NAME +
+                                                                  RULE + label_id,
+                                                                  wrap=False)
+    
+                    rm.iptables_manager.ipv4['filter'].remove_chain(label_chain,
+                                                                    wrap=False)
+                    rm.iptables_manager.ipv4['filter'].remove_chain(rules_chain,
+                                                                    wrap=False)
+                except Exception:
+                    LOG.debug('Ipbtabels disassociate metering failed!')
                 del rm.metering_labels[label_id]
 
     @log_helpers.log_method_call
@@ -278,7 +302,10 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
         rm = self.routers.get(router['id'])
         if not rm:
             return
-        ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
+        if router['node_type'] == "compute":
+            ext_dev = self.get_dvr_fg_device_name(rm.ns_name)
+        else:
+            ext_dev = self.get_external_device_name(rm.router['gw_port_id'])
         if not ext_dev:
             return
         with IptablesManagerTransaction(rm.iptables_manager):
@@ -342,29 +369,25 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
             rm = self.routers.get(router['id'])
             if not rm:
                 continue
-
             for label_id, label in rm.metering_labels.items():
                 try:
                     chain = iptables_manager.get_chain_name(WRAP_NAME +
-                                                            LABEL +
+                                                            RULE +
                                                             label_id,
                                                             wrap=False)
 
-                    chain_acc = rm.iptables_manager.get_traffic_counters(
+                    chain_acc_list = rm.iptables_manager.get_traffic_counters(
                         chain, wrap=False, zero=True)
                 except RuntimeError:
                     LOG.exception(_LE('Failed to get traffic counters, '
                                       'router: %s'), router)
                     continue
 
-                if not chain_acc:
+                if not chain_acc_list:
                     continue
 
-                acc = accs.get(label_id, {'pkts': 0, 'bytes': 0})
-
-                acc['pkts'] += chain_acc['pkts']
-                acc['bytes'] += chain_acc['bytes']
-
-                accs[label_id] = acc
-
+                #acc = accs.get(label_id, {'pkts': 0, 'bytes': 0})
+                for acc in chain_acc_list:
+                    acc['tenant_id'] = router['tenant_id']
+                    accs[label['name'] + '_' + acc['direction']] = acc               
         return accs

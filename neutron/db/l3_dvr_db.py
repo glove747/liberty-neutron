@@ -54,7 +54,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
     """Mixin class to enable DVR support."""
 
     router_device_owners = (
-        l3_db.L3_NAT_db_mixin.router_device_owners +
+        l3_db.L3_NAT_db_mixin.router_device_owners + 
         (l3_const.DEVICE_OWNER_DVR_INTERFACE,
          l3_const.DEVICE_OWNER_ROUTER_SNAT,
          l3_const.DEVICE_OWNER_AGENT_GW))
@@ -175,6 +175,9 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             if not ext_net_gw_ports:
                 self.delete_floatingip_agent_gateway_port(
                     context.elevated(), None, gw_ext_net_id)
+            #GL#metering_plugin = self._get_plugin(context, constants.METERING)
+            #GL#if metering_plugin:
+            #GL#    self.delete_metering_label_and_rule_if_exist(context, metering_plugin, router_id)
 
     def _create_gw_port(self, context, router_id, router, new_network,
                         ext_ips):
@@ -186,9 +189,18 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         if router.extra_attributes.distributed and router.gw_port:
             snat_p_list = self._create_snat_intf_ports_if_not_exists(
                 context.elevated(), router)
+            #GL#metering_plugin = self._get_plugin(context, constants.METERING)
+            #GL#if metering_plugin:
+            #GL#    gw_port = self._core_plugin.get_port(
+            #GL#                           context.elevated(), router['gw_port_id'])
+            #GL#    ip_prefix = ""
+            #GL#    for fixed_ip in gw_port['fixed_ips']:
+            #GL#        ip_prefix = fixed_ip['ip_address']
+            #GL#    self.create_metering_label_and_rule(context, metering_plugin, router['tenant_id'], 
+            #GL#                                        router['id'], ip_prefix)
             if not snat_p_list:
                 LOG.debug("SNAT interface ports not created: %s", snat_p_list)
-
+        
     def _get_device_owner(self, context, router=None):
         """Get device_owner for the specified router."""
         router_is_uuid = isinstance(router, six.string_types)
@@ -219,6 +231,9 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         super(L3_NAT_with_dvr_db_mixin, self)._update_fip_assoc(
             context, fip, floatingip_db, external_port, method)
         associate_fip = fip_port and floatingip_db['id']
+        #GL#metering_plugin = self._get_plugin(context, constants.METERING)
+        #GL#if not associate_fip and metering_plugin:
+        #GL#    self.delete_metering_label_and_rule_if_exist(context, metering_plugin, floatingip_db['floating_ip_address'])
         if associate_fip and floatingip_db.get('router_id'):
             admin_ctx = context.elevated()
             router_dict = self.get_router(
@@ -239,7 +254,11 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                             admin_ctx, external_port['network_id'],
                             vm_hostid))
                     LOG.debug("FIP Agent gateway port: %s", fip_agent_port)
-
+                    #GL#if metering_plugin:
+                    #GL#    self.create_metering_label_and_rule(context, metering_plugin,
+                    #GL#                            floatingip_db['tenant_id'], floatingip_db['floating_ip_address'], 
+                    #GL#                            floatingip_db['floating_ip_address'])
+    
     def _get_floatingip_on_port(self, context, port_id=None):
         """Helper function to retrieve the fip associated with port."""
         fip_qry = context.session.query(l3_db.FloatingIP)

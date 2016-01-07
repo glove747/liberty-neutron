@@ -71,6 +71,8 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                    help=_("Interval between two metering measures")),
         cfg.IntOpt('report_interval', default=300,
                    help=_("Interval between two metering reports")),
+        cfg.StrOpt('node_type', default=None,
+                   help=_("used in dev mode.")),
     ]
 
     def __init__(self, host, conf=None):
@@ -99,9 +101,9 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
             self.conf.driver, self, self.conf)
 
     def _metering_notification(self):
-        for label_id, info in self.metering_infos.items():
-            data = {'label_id': label_id,
-                    'tenant_id': self.label_tenant_id.get(label_id),
+        for reousrce_id, info in self.metering_infos.items():
+            data = {'label_id': reousrce_id ,
+                    'tenant_id': info['tenant_id'],
                     'pkts': info['pkts'],
                     'bytes': info['bytes'],
                     'time': info['time'],
@@ -125,7 +127,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         for label_id in label_ids:
             del self.metering_infos[label_id]
 
-    def _add_metering_info(self, label_id, pkts, bytes):
+    def _add_metering_info(self, label_id, pkts, bytes, tenant_id):
         ts = int(time.time())
         info = self.metering_infos.get(label_id, {'bytes': 0,
                                                   'pkts': 0,
@@ -134,6 +136,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                                                   'last_update': ts})
         info['bytes'] += bytes
         info['pkts'] += pkts
+        info['tenant_id'] = tenant_id
         info['time'] += ts - info['last_update']
         info['last_update'] = ts
 
@@ -156,7 +159,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
             return
 
         for label_id, acc in accs.items():
-            self._add_metering_info(label_id, acc['pkts'], acc['bytes'])
+            self._add_metering_info(label_id, acc['pkts'], acc['bytes'], acc['tenant_id'])
 
     def _metering_loop(self):
         self._add_metering_infos()
@@ -209,8 +212,8 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
     def _update_routers(self, context, routers):
         for router in routers:
             self.routers[router['id']] = router
-
-        return self._invoke_driver(context, routers,
+        routers_list = self._update_routers_by_host_and_node_type(routers)
+        return self._invoke_driver(context, routers_list,
                                    'update_routers')
 
     def _get_traffic_counters(self, context, routers):
@@ -218,11 +221,13 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         return self._invoke_driver(context, routers, 'get_traffic_counters')
 
     def add_metering_label_rule(self, context, routers):
-        return self._invoke_driver(context, routers,
+        routers_list = self._update_routers_by_host_and_node_type(routers)
+        return self._invoke_driver(context, routers_list,
                                    'add_metering_label_rule')
 
     def remove_metering_label_rule(self, context, routers):
-        return self._invoke_driver(context, routers,
+        routers_list = self._update_routers_by_host_and_node_type(routers)
+        return self._invoke_driver(context, routers_list,
                                    'remove_metering_label_rule')
 
     def update_metering_label_rules(self, context, routers):
@@ -230,14 +235,31 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         return self._invoke_driver(context, routers,
                                    'update_metering_label_rules')
 
+    def _update_routers_by_host_and_node_type(self, routers):
+        routers_list = []
+        node_type = self.conf.node_type
+        for router in routers:
+            router['node_type'] = node_type
+            labels_list = []
+            labels = router.get(constants.METERING_LABEL_KEY, [])
+            for label in labels:
+                if node_type == 'compute' and label['host'] == self.host:
+                    labels_list.append(label)
+                if node_type == 'network' and label['name'] == router['id']:
+                    labels_list.append(label)
+            router[constants.METERING_LABEL_KEY] = labels_list
+            routers_list.append(router)
+
+        return routers_list
+
     def add_metering_label(self, context, routers):
         LOG.debug("Creating a metering label from agent")
-        return self._invoke_driver(context, routers,
+        routers_list = self._update_routers_by_host_and_node_type(routers)
+        return self._invoke_driver(context, routers_list,
                                    'add_metering_label')
 
     def remove_metering_label(self, context, routers):
         self._add_metering_infos()
-
         LOG.debug("Delete a metering label from agent")
         return self._invoke_driver(context, routers,
                                    'remove_metering_label')
