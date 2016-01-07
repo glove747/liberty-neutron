@@ -32,6 +32,7 @@ from neutron.db import l3_dvrscheduler_db as l3_dvrsched_db
 from neutron.db import models_v2
 from neutron.extensions import l3
 from neutron.extensions import portbindings
+from neutron.extensions.portbindings import HOST_ID
 from neutron.i18n import _LI
 from neutron import manager
 from neutron.plugins.common import constants
@@ -429,7 +430,20 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                    'device_owner': [l3_const.DEVICE_OWNER_AGENT_GW]}
         interfaces = self._core_plugin.get_ports(context.elevated(), filters)
         LOG.debug("Return the FIP ports: %s ", interfaces)
+        interface_shared = self._get_fip_sync_interface_shared(context)
+        if interfaces and interface_shared:
+            interfaces[0]['fixed_ips'] = interface_shared['fixed_ips']
         return interfaces
+
+    def _get_fip_sync_interface_shared(self, context):
+        """Query router interface that be shared."""
+        filters = {'device_owner': [l3_const.DEVICE_OWNER_AGENT_GW_SHARED]}
+        interfaces = self._core_plugin.get_ports(context.elevated(), filters)
+        LOG.debug("Return the FIP Shared port: %s ", interfaces)
+        if interfaces:
+            return interfaces[0]
+        else:
+            return None
 
     def _get_dvr_sync_data(self, context, host, agent, router_ids=None,
                           active=None):
@@ -477,7 +491,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             return vm_port_db[portbindings.HOST_ID]
 
     def _get_agent_gw_ports_exist_for_network(
-            self, context, network_id, host, agent_id):
+            self, context, network_id, host, agent_id,
+            device_owner=l3_const.DEVICE_OWNER_AGENT_GW):
         """Return agent gw port if exist, or None otherwise."""
         if not network_id:
             LOG.debug("Network not specified")
@@ -486,8 +501,11 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         filters = {
             'network_id': [network_id],
             'device_id': [agent_id],
-            'device_owner': [l3_const.DEVICE_OWNER_AGENT_GW]
+            'device_owner': [device_owner]
         }
+        if not agent_id:
+            del filters['device_id']
+        LOG.debug("Get ports by filter: %s", filters)
         ports = self._core_plugin.get_ports(context, filters)
         if ports:
             return ports[0]
@@ -524,6 +542,21 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             context, l3_const.AGENT_TYPE_L3, host)
         if l3_agent_db:
             LOG.debug("Agent ID exists: %s", l3_agent_db['id'])
+            shared_port = self._get_agent_gw_ports_exist_for_network(
+                context, network_id, host, None,
+                device_owner=l3_const.DEVICE_OWNER_AGENT_GW_SHARED)
+            if not shared_port:
+                LOG.info(_LI('Agent Gateway port shared does not exist,'
+                             ' so create one: %s'), shared_port)
+                port_data = {'tenant_id': '',
+                             'network_id': network_id,
+                             'device_owner':
+                                 l3_const.DEVICE_OWNER_AGENT_GW_SHARED,
+                             'admin_state_up': True,
+                             'name': ''}
+                shared_port = p_utils.create_port(self._core_plugin,
+                                                  context,
+                                                  {'port': port_data})
             f_port = self._get_agent_gw_ports_exist_for_network(
                 context, network_id, host, l3_agent_db['id'])
             if not f_port:
@@ -533,19 +566,18 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                              'network_id': network_id,
                              'device_id': l3_agent_db['id'],
                              'device_owner': l3_const.DEVICE_OWNER_AGENT_GW,
-                             'binding:host_id': host,
+                             HOST_ID: host,
                              'admin_state_up': True,
-                             'name': ''}
-                agent_port = p_utils.create_port(self._core_plugin, context,
-                                                 {'port': port_data})
-                if agent_port:
-                    self._populate_subnets_for_ports(context, [agent_port])
-                    return agent_port
-                msg = _("Unable to create the Agent Gateway Port")
-                raise n_exc.BadRequest(resource='router', msg=msg)
-            else:
+                             'name': '',
+                             'fixed_ips': []}
+                f_port = p_utils.create_port(self._core_plugin, context,
+                                    {'port': port_data})
+            if f_port:
+                f_port['fixed_ips'] = shared_port['fixed_ips']
                 self._populate_subnets_for_ports(context, [f_port])
                 return f_port
+            msg = _("Unable to create the Agent Gateway Port")
+            raise n_exc.BadRequest(resource='router', msg=msg)
 
     def _get_snat_interface_ports_for_router(self, context, router_id):
         """Return all existing snat_router_interface ports."""

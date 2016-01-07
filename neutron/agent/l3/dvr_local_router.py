@@ -13,16 +13,17 @@
 #    under the License.
 
 import binascii
-import netaddr
+import traceback
 
+import netaddr
 from oslo_log import log as logging
 from oslo_utils import excutils
 import six
-
 from neutron.agent.l3 import dvr_fip_ns
 from neutron.agent.l3 import dvr_router_base
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import tc_lib
+from neutron.agent.linux.ip_lib import get_ip_version
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions
 from neutron.common import utils as common_utils
@@ -83,7 +84,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         ip_rule.rule.add(ip=fixed_ip,
                          table=dvr_fip_ns.FIP_RT_TBL,
                          priority=rule_pr)
-        #Add routing rule in fip namespace
+        # Add routing rule in fip namespace
         fip_ns_name = self.fip_ns.get_name()
         if self.rtr_fip_subnet is None:
             self.rtr_fip_subnet = self.fip_ns.local_subnets.allocate(
@@ -98,8 +99,12 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                       interface_name,
                                       floating_ip,
                                       self.agent_conf)
+
         # update internal structures
         self.dist_fip_count = self.dist_fip_count + 1
+
+        # Add rule by different subnets
+        self._add_fip_gateway_rule(floating_ip)
 
     def floating_ip_removed_dist(self, fip_cidr):
         """Remove floating IP from FIP namespace."""
@@ -119,7 +124,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                 table=dvr_fip_ns.FIP_RT_TBL,
                                 priority=rule_pr)
             self.fip_ns.deallocate_rule_priority(floating_ip)
-            #TODO(rajeev): Handle else case - exception/log?
+            # TODO(rajeev): Handle else case - exception/log?
 
         device = ip_lib.IPDevice(fip_2_rtr_name, namespace=fip_ns_name)
 
@@ -127,7 +132,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         # check if this is the last FIP for this router
         self.dist_fip_count = self.dist_fip_count - 1
         if self.dist_fip_count == 0:
-            #remove default route entry
+            # remove default route entry
             device = ip_lib.IPDevice(rtr_2_fip_name, namespace=self.ns_name)
             ns_ip = ip_lib.IPWrapper(namespace=fip_ns_name)
             device.route.delete_gateway(str(fip_2_rtr.ip),
@@ -230,6 +235,69 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
     def update_floating_ip(self, fip):
         self.floating_ip_added_qos(fip)
 
+    def _add_fip_gateway_rule(self, floating_ip):
+        try:
+            LOG.debug("DVR: add fipns subnets's rule, floating_ip: %s",
+                      floating_ip)
+            fip_ns_name = self.fip_ns.get_name()
+            fip_port = self.agent.get_port_by_floatingip(floating_ip)
+            LOG.debug("DVR: add fipns subnets's rule, fip_port: %s", fip_port)
+            if fip_port and fip_port['fixed_ips']:
+                fip_subnet_id = fip_port['fixed_ips'][0]['subnet_id']
+                ex_gw_port = self.get_ex_gw_port()
+                fip_agent_port = self.get_floating_agent_gw_interface(
+                    ex_gw_port['network_id'])
+                if not fip_agent_port:
+                    LOG.debug(
+                        "No FloatingIP agent gateway port possibly due to "
+                        "late binding of the private port to the host, "
+                        "requesting agent gateway port for 'network-id' :"
+                        "%s", ex_gw_port['network_id'])
+                    fip_agent_port = self.agent.plugin_rpc. \
+                        get_agent_gateway_port(self.agent.context,
+                                               ex_gw_port['network_id'])
+                if fip_agent_port:
+                    fip_subnets = filter(lambda x: x['id'] == fip_subnet_id,
+                                         fip_agent_port['subnets'])
+                    if fip_subnets and len(fip_subnets) == 1:
+                        _fip_cidr = fip_subnets[0].get('cidr')
+                        ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+                        rules = ip_rule.rule. \
+                            list_rules(get_ip_version(_fip_cidr))
+                        LOG.debug("DVR: rules: %s", rules)
+                        contains = filter(lambda x: x['from'] == _fip_cidr,
+                                          rules)
+                        rule_table = self.fip_ns.\
+                            rule_table_allocate(fip_subnet_id)
+                        if not any(contains):
+                            fip_fg_name = self.fip_ns.\
+                                get_ext_device_name(fip_agent_port['id'])
+                            device = ip_lib.IPDevice(fip_fg_name,
+                                                     namespace=fip_ns_name)
+                            fip_gw_ip = fip_subnets[0].get('gateway_ip')
+                            device.route.add_gateway(fip_gw_ip,
+                                                     table=rule_table)
+                            ip_rule = ip_lib.IPRule(namespace=fip_ns_name)
+                            ip_rule.rule.add(ip=_fip_cidr,
+                                             table=rule_table,
+                                             priority=rule_table)
+
+                    else:
+                        LOG.error('Fip_subnets found not single '
+                                  'fip_agent_port: %s, fip_subnet_id: %s.',
+                                  fip_agent_port['subnets'], fip_subnet_id)
+                else:
+                    LOG.error(_LE("No FloatingIP agent gateway port "
+                                  "returned from server for 'network-id': %s"),
+                              ex_gw_port['network_id'])
+            else:
+                LOG.error('Fip %s port not found.', floating_ip)
+        except Exception:
+            err_msg = "floating_ip_added_dist error %s" % \
+                          traceback.format_exc()
+            LOG.exception(err_msg)
+            raise exceptions.FloatingIpSetupException(err_msg)
+
     def add_floating_ip(self, fip, interface_name, device):
         if not self._add_fip_addr_to_device(fip, device):
             return l3_constants.FLOATINGIP_STATUS_ERROR
@@ -315,7 +383,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                          snat_idx):
         try:
             ns_ip_device.route.delete_gateway(gw_ip_addr,
-                                        table=snat_idx)
+                                              table=snat_idx)
         except exceptions.DeviceNotFoundError:
             pass
 
@@ -411,7 +479,8 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         """Filter Floating Agent GW port for the external network."""
         fip_ports = self.router.get(l3_constants.FLOATINGIP_AGENT_INTF_KEY, [])
         return next(
-            (p for p in fip_ports if p['network_id'] == ext_net_id), None)
+            (p for p in fip_ports if p['network_id'] == ext_net_id),
+            None)
 
     def get_external_device_interface_name(self, ex_gw_port):
         fip_int = self.fip_ns.get_int_device_name(self.router_id)
@@ -424,7 +493,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         # and ns_name are the key differences.
         ip_wrapr = ip_lib.IPWrapper(namespace=self.ns_name)
         ip_wrapr.netns.execute(['sysctl', '-w',
-                               'net.ipv4.conf.all.send_redirects=0'])
+                                'net.ipv4.conf.all.send_redirects=0'])
         for p in self.internal_ports:
             gateway = self.get_snat_port_for_internal_port(p)
             id_name = self.get_internal_device_name(p['id'])
@@ -462,6 +531,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         ex_gw_port = self.get_ex_gw_port()
         if ex_gw_port:
             self.create_dvr_fip_interfaces(ex_gw_port)
+
         super(DvrLocalRouter, self).process_external(agent)
 
     def create_dvr_fip_interfaces(self, ex_gw_port):
@@ -470,7 +540,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             ex_gw_port['network_id'])
         if fip_agent_port:
             LOG.debug("FloatingIP agent gateway port received from the "
-                "plugin: %s", fip_agent_port)
+                      "plugin: %s", fip_agent_port)
         is_first = False
         if floating_ips:
             is_first = self.fip_ns.subscribe(self.router_id)
@@ -491,8 +561,13 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 else:
                     self.fip_ns.create_gateway_port(fip_agent_port)
 
+                    self.fip_ns.update_fip_gateway_rule(fip_agent_port)
+
+                    # ARP-5 fip-xxx recreate
+                    self.agent.sync_fip_arp_entry()
+
             if (self.fip_ns.agent_gateway_port and
-                (self.dist_fip_count == 0 or is_first)):
+                    (self.dist_fip_count == 0 or is_first)):
                 self.fip_ns.create_rtr_2_fip_link(self)
 
                 # kicks the FW Agent to add rules for the IR namespace if

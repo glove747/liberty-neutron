@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 #
+import traceback
 
 import eventlet
 import netaddr
@@ -105,6 +106,12 @@ class L3PluginApi(object):
         cctxt = self.client.prepare()
         return cctxt.call(context, 'get_external_network_id', host=self.host)
 
+    def get_fip_arp_entry(self, context):
+        """Make a remote process call to retrieve the fip arp entry.
+        """
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'get_fip_arp_entry', host=self.host)
+
     def update_floatingip_statuses(self, context, router_id, fip_statuses):
         """Call the plugin update floating IPs's operational status."""
         cctxt = self.client.prepare(version='1.1')
@@ -122,6 +129,12 @@ class L3PluginApi(object):
         cctxt = self.client.prepare(version='1.2')
         return cctxt.call(context, 'get_policy_by_id', host=self.host,
                           id=id, fields=fields)
+
+    def get_port_by_floatingip(self, context, floating_ip):
+        """Retrieve port by floating_ip."""
+        cctxt = self.client.prepare(version='1.2')
+        return cctxt.call(context, 'get_port_by_floatingip', host=self.host,
+                          floating_ip=floating_ip)
 
     def get_agent_gateway_port(self, context, fip_net):
         """Get or create an agent_gateway_port."""
@@ -611,6 +624,28 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                                     action=queue.PD_UPDATE)
         self._queue.add(update)
 
+    def sync_fip_arp_entry(self):
+        LOG.debug("Start sync fip arp entry.")
+        external_network_id = \
+            self.plugin_rpc.get_external_network_id(self.context)
+        LOG.debug("external_network_id: %s .", external_network_id)
+        fip_ns = self.get_fip_ns(external_network_id)
+        ip = ip_lib.IPWrapper(namespace=fip_ns.get_name())
+        if ip.netns.exists(fip_ns.get_name()):
+            fip_gateway_port = self.plugin_rpc.get_agent_gateway_port(
+                self.context,
+                external_network_id)
+            fip_arp_entry = self.plugin_rpc.get_fip_arp_entry(self.context)
+            fip_ns.sync_fip_arp_entry(self.context,
+                                      external_network_id,
+                                      fip_gateway_port,
+                                      fip_arp_entry)
+            LOG.debug("Finish sync fip arp entry. fip_ns: %s",
+                      fip_ns.get_name())
+        else:
+            LOG.debug("fip namespace not found, %s.", fip_ns.get_name())
+
+
 
 class L3NATAgentWithStateReport(L3NATAgent):
 
@@ -682,7 +717,28 @@ class L3NATAgentWithStateReport(L3NATAgent):
 
         self.pd.after_start()
 
+        # ARP-4 fip-xxx probable missed some arp
+        self.sync_fip_arp_entry()
+
     def agent_updated(self, context, payload):
         """Handle the agent_updated notification event."""
         self.fullsync = True
         LOG.info(_LI("agent_updated by server side %s!"), payload)
+
+    def update_fip_gateway(self, context, payload):
+        external_network_id = payload['external_network_id']
+        fip_ns = self.get_fip_ns(external_network_id)
+        fip_gateway_port = self.plugin_rpc.get_agent_gateway_port(
+            context,
+            external_network_id)
+        if fip_gateway_port:
+            if fip_ns.agent_gateway_port:
+                new_fixed_ip_count = len(fip_gateway_port['fixed_ips'])
+                old_fixed_ip_count = len(fip_ns.agent_gateway_port['fixed_ips'])
+                LOG.debug("DVR: FloatingIP agent gateway port "
+                          " new_subnet_count: %s, old_subnet_count: %s",
+                          new_fixed_ip_count,
+                          old_fixed_ip_count)
+                if new_fixed_ip_count != old_fixed_ip_count:
+                    fip_ns.update_gateway_port(fip_gateway_port)
+                    fip_ns.update_fip_gateway_rule(fip_gateway_port)

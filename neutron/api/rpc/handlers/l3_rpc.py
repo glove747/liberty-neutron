@@ -19,10 +19,15 @@ import oslo_messaging
 from oslo_serialization import jsonutils
 import six
 
+from neutron.callbacks import events
+from neutron.callbacks import exceptions
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import constants
 from neutron.common import exceptions
 from neutron.common import utils
 from neutron import context as neutron_context
+from neutron.common.constants import FLOATINGIP_STATUS_ACTIVE
 from neutron.db import api as db_api
 from neutron.extensions import l3
 from neutron.extensions import portbindings
@@ -202,6 +207,17 @@ class L3RpcCallback(object):
                   net_id)
         return net_id
 
+    def get_fip_arp_entry(self, context, **kwargs):
+        """Get one fip arp entry for l3 agent.
+        """
+        context = neutron_context.get_admin_context()
+        host = kwargs.get('host')
+        fip_arp_entry = self.l3plugin.get_fip_arp_entry(context, host)
+        LOG.debug("Fip arp entry %s returned to l3 agent: %s",
+                  fip_arp_entry,
+                  host)
+        return fip_arp_entry
+
     def get_service_plugin_list(self, context, **kwargs):
         plugins = manager.NeutronManager.get_service_plugins()
         return plugins.keys()
@@ -235,6 +251,24 @@ class L3RpcCallback(object):
                 self.l3plugin.update_floatingip_status(
                     context, fip_id, constants.FLOATINGIP_STATUS_DOWN)
 
+            self._notify_fip_update(context, fip_statuses)
+
+    def _notify_fip_update(self, context, fip_statuses):
+        floating_ips = []
+        for (floatingip_id, status) in six.iteritems(fip_statuses):
+            try:
+                floating_ips.append(self.l3plugin.get_floatingip(context,
+                                                                 floatingip_id))
+            except l3.FloatingIPNotFound:
+                LOG.error("Floating IP: %s no longer present.", floatingip_id)
+
+        kwargs = {'context': context, 'floating_ips': floating_ips}
+        registry.notify(resources.FLOATINGIP,
+                        events.AFTER_UPDATE,
+                        self,
+                        **kwargs)
+        LOG.error("Floating IP: notified %s .", floating_ips)
+
     def get_ports_by_subnet(self, context, **kwargs):
         """DVR: RPC called by dvr-agent to get all ports for subnet."""
         subnet_id = kwargs.get('subnet_id')
@@ -248,6 +282,21 @@ class L3RpcCallback(object):
         fields = kwargs.get('fields')
         LOG.debug("DVR: id: %s, fields: %s", id, fields)
         return self.plugin.get_policy(context, id, fields=fields)
+
+    def get_port_by_floatingip(self, context, **kwargs):
+        """DVR: RPC called by dvr-agent to get port for floatingip."""
+        floating_ip = kwargs.get('floating_ip')
+        LOG.debug("DVR: floatingip.ip_address: %s", floating_ip)
+        filters = {
+            'device_owner': [constants.DEVICE_OWNER_FLOATINGIP],
+            'fixed_ips': {'ip_address': [floating_ip]}
+        }
+        ports = self.plugin.get_ports(context, filters=filters)
+        if ports and len(ports) == 1:
+            return ports[0]
+        else:
+            LOG.error("get_port_by_floatingip found not single, "
+                      "floating_ip: %s, ports: %s", floating_ip, ports)
 
     @db_api.retry_db_errors
     def get_agent_gateway_port(self, context, **kwargs):

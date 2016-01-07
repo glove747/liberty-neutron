@@ -12,12 +12,14 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-
+import json
 import random
 
+import six
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
 import sqlalchemy as sa
+from oslo_utils import excutils
 from sqlalchemy import orm
 from sqlalchemy.orm import joinedload
 
@@ -26,11 +28,17 @@ from neutron.callbacks import registry
 from neutron.callbacks import resources
 from neutron.common import constants as n_const
 from neutron.common import utils as n_utils
+from neutron.common.constants import L3_AGENT_MODE_DVR, FLOATINGIP_STATUS_ACTIVE, \
+    FLOATINGIP_STATUS_DOWN, FLOATINGIP_STATUS_ERROR, DEVICE_OWNER_AGENT_GW, \
+    PORT_STATUS_ACTIVE
+from neutron.common.topics import L3_AGENT
 from neutron.db import agents_db
 from neutron.db import l3_agentschedulers_db as l3agent_sch_db
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import l3agentscheduler
+from neutron.extensions.l3 import FloatingIPNotFound
+from neutron.extensions.portbindings import HOST_ID
 from neutron.i18n import _LI, _LW
 from neutron import manager
 from neutron.plugins.common import constants as service_constants
@@ -114,6 +122,43 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                     self.l3_rpc_notifier.routers_updated(
                         context, [router_id], None, payload)
                     LOG.debug('DVR: dvr_update_router_addvm %s ', router_id)
+
+    def get_l3_dvr_agents(self, context):
+        filters = {'topic': [L3_AGENT]}
+        active_l3_agents = self.get_l3_agents(context, active=True,
+                                              filters=filters)
+        LOG.debug('DVR: active_l3_agents %s', active_l3_agents)
+        active_l3_agents = [l3_agent for l3_agent in active_l3_agents
+                            if l3_agent['configurations'] and
+                            json.loads(l3_agent['configurations'])[
+                                'agent_mode'] == L3_AGENT_MODE_DVR]
+        LOG.debug('DVR: active_l3_agents filtered agent_mode as %s, %s',
+                  L3_AGENT_MODE_DVR,
+                  active_l3_agents)
+        return active_l3_agents
+
+    def dvr_update_floatingip_agent_gateway_shared(self, context):
+        LOG.debug('DVR: Start notify L3 dvr agents floatingip agent gateway'
+                  ' shared updated')
+        admin_ctx = context.elevated()
+        active_l3_agents = self.get_l3_dvr_agents(admin_ctx)
+        if not active_l3_agents:
+            LOG.warn('No active L3 dvr agents found.')
+            return
+
+        external_network_id = self._core_plugin.get_external_network_id(
+            admin_ctx)
+        data = {'external_network_id': external_network_id}
+        for l3_agent in active_l3_agents:
+            try:
+                self.l3_rpc_notifier.update_fip_gateway(admin_ctx,
+                                                        data,
+                                                        l3_agent['host'])
+                LOG.debug('DVR: notified L3 dvr agents: %s', l3_agent)
+            except Exception:
+                with excutils.save_and_reraise_exception():
+                    LOG.exception("DVR: Failed notified L3 dvr agents %s.",
+                                  l3_agent)
 
     def get_dvr_routers_by_portid(self, context, port_id):
         """Gets the dvr routers on vmport subnets."""
@@ -450,6 +495,114 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                   self).remove_router_from_l3_agent(
                     context, agent_id, router_id)
 
+    def _get_fip_gateway_port_by_floatingip(self, context, floatingip):
+        fixed_ip_port_id = floatingip['port_id']
+        external_network_id = self._core_plugin.get_external_network_id(context)
+        port = self._core_plugin.get_port(context, id=fixed_ip_port_id)
+        LOG.debug("DVR: fixed_ip_port %s.", port)
+        if port:
+            filters = {
+                'admin_state_up': [True],
+                'network_id': [external_network_id],
+                HOST_ID: [port[HOST_ID]],
+                'device_owner': [DEVICE_OWNER_AGENT_GW]
+            }
+            ports = self._core_plugin.get_ports(context, filters=filters)
+            LOG.debug("DVR: fip_gateway_port %s.", ports)
+            if ports:
+                return ports[0]
+        return None
+
+    def _get_fip_gateway_ports(self, context, external_network_id):
+        filters = {
+                'admin_state_up': [True],
+                'network_id': [external_network_id],
+                'device_owner': [DEVICE_OWNER_AGENT_GW]
+            }
+        return self._core_plugin.get_ports(context, filters=filters)
+
+    def dvr_notify_l3_agent_fip_update(self, context, floating_ips):
+        LOG.debug("Floating IP: floating_ips %s.", floating_ips)
+        for fip in floating_ips:
+            if fip['status'] == FLOATINGIP_STATUS_ACTIVE:
+                fip_gateway_port = self._get_fip_gateway_port_by_floatingip(
+                        context,
+                        fip)
+                if fip_gateway_port:
+                    arp_dict = {
+                        'floating_ip_address': fip['floating_ip_address'],
+                        'mac_address': fip_gateway_port['mac_address']
+                    }
+                    self.l3_rpc_notifier.add_fip_arp_entry(context, arp_dict)
+                    LOG.debug('DVR: add_fip_arp_entry arp_dict: %s ', arp_dict)
+                else:
+                    LOG.error('DVR: fip_gateway_port not found: %s ', fip)
+
+            elif fip['status'] in [FLOATINGIP_STATUS_DOWN]:
+                arp_dict = {
+                    'floating_ip_address': fip['floating_ip_address']
+                }
+                self.l3_rpc_notifier.del_fip_arp_entry(context, arp_dict)
+                LOG.debug('DVR: del_fip_arp_entry arp_dict: %s ', arp_dict)
+            else:
+                # TODO(nanzhang) FLOATINGIP_STATUS_ERROR
+                LOG.error('DVR: fip status error: %s ', fip)
+
+    def get_fip_arp_entry(self, context, host):
+        LOG.debug("DVR: get fip arp entry to l3 agent %s.", host)
+        admin_ctx = context.elevated()
+        external_network_id = \
+            self._core_plugin.get_external_network_id(admin_ctx)
+        fip_gateway_ports = self._get_fip_gateway_ports(admin_ctx,
+                                                        external_network_id)
+        if not fip_gateway_ports:
+            LOG.error("DVR: fip_gateway_ports not found %s.", host)
+            return
+        LOG.debug("DVR: fip_gateway_ports %s.", fip_gateway_ports)
+
+        mac_dict_id = {}
+        for fip_gateway_port in fip_gateway_ports:
+            host_id = fip_gateway_port[HOST_ID]
+            filters = {'admin_state_up': [True],
+                       'status': [PORT_STATUS_ACTIVE],
+                       HOST_ID: [host_id]}
+            fixed_ip_ports = self._core_plugin.get_ports(admin_ctx,
+                                                         filters=filters)
+            if fixed_ip_ports:
+                fixed_ip_port_ids = [fixed_ip_port['id']
+                                     for fixed_ip_port in fixed_ip_ports]
+                LOG.debug("DVR: fixed_ip_ports on %s, %s.",
+                          host_id,
+                          fixed_ip_port_ids)
+                mac_dict_id[fip_gateway_port['mac_address']] = fixed_ip_port_ids
+        LOG.debug("DVR: mac_dict_id %s.", mac_dict_id)
+
+        filters = {'floating_network_id': [external_network_id],
+                   'status': [FLOATINGIP_STATUS_ACTIVE]}
+        floatingips = self.get_floatingips(admin_ctx, filters)
+        LOG.debug("DVR: floatingips %s.", [floatingip['floating_ip_address']
+                                           for floatingip in floatingips])
+        fip_arp_entry = []
+        if floatingips and mac_dict_id:
+            for floatingip in floatingips:
+                for k, v in six.iteritems(mac_dict_id):
+                    try:
+                        if floatingip['port_id'] in v:
+                            arp_dict = {
+                                'floating_ip_address':
+                                    floatingip['floating_ip_address'],
+                                'mac_address': k
+                            }
+                            fip_arp_entry.append(arp_dict)
+                    except Exception:
+                        with excutils.save_and_reraise_exception(reraise=False):
+                            LOG.exception("DVR: floatingip get port_id error,"
+                                          " %s", floatingip)
+        LOG.debug("DVR: Retrun fip_arp_entry %s to %s.",
+                  fip_arp_entry,
+                  host)
+        return fip_arp_entry
+
 
 def _notify_l3_agent_new_port(resource, event, trigger, **kwargs):
     LOG.debug('Received %(resource)s %(event)s', {
@@ -492,7 +645,7 @@ def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
     if new_port and original_port:
         original_device_owner = original_port.get('device_owner', '')
         if (original_device_owner.startswith('compute') and
-                not new_port.get('device_owner')):
+            not new_port.get('device_owner')):
             removed_routers = l3plugin.dvr_deletens_if_no_port(
                 context,
                 original_port['id'],
@@ -515,8 +668,24 @@ def _notify_l3_agent_port_update(resource, event, trigger, **kwargs):
             if router_id:
                 l3plugin.notify_router_updated(context, router_id,
                                                'port_update')
+        elif original_device_owner == n_const.DEVICE_OWNER_AGENT_GW_SHARED:
+            l3plugin.dvr_update_floatingip_agent_gateway_shared(context)
     else:
         _notify_l3_agent_new_port(resource, event, trigger, **kwargs)
+
+
+def _notify_l3_agent_fip_update(resource, event, trigger, **kwargs):
+    LOG.debug('Received %(resource)s %(event)s', {
+        'resource': resource,
+        'event': event})
+    floating_ips = kwargs.get('floating_ips', None)
+    context = kwargs['context']
+    admin_cxt = context.elevated()
+    if not floating_ips:
+        return
+    l3plugin = manager.NeutronManager.get_service_plugins().get(
+        service_constants.L3_ROUTER_NAT)
+    l3plugin.dvr_notify_l3_agent_fip_update(admin_cxt, floating_ips)
 
 
 def subscribe():
@@ -526,3 +695,5 @@ def subscribe():
         _notify_l3_agent_new_port, resources.PORT, events.AFTER_CREATE)
     registry.subscribe(
         _notify_port_delete, resources.PORT, events.AFTER_DELETE)
+    registry.subscribe(
+        _notify_l3_agent_fip_update, resources.FLOATINGIP, events.AFTER_UPDATE)

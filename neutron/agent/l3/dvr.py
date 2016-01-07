@@ -18,6 +18,7 @@ from oslo_log import log as logging
 
 from neutron.agent.l3 import dvr_fip_ns
 from neutron.agent.l3 import dvr_snat_ns
+from neutron.agent.linux import ip_lib
 
 LOG = logging.getLogger(__name__)
 
@@ -56,6 +57,9 @@ class AgentMixin(object):
         return self.plugin_rpc.get_policy_by_id(self.context, id,
                                                 fields=fields)
 
+    def get_port_by_floatingip(self, floating_ip):
+        return self.plugin_rpc.get_port_by_floatingip(self.context, floating_ip)
+
     def add_arp_entry(self, context, payload):
         """Add arp entry into router namespace.  Called from RPC."""
         router_id = payload['router_id']
@@ -81,3 +85,28 @@ class AgentMixin(object):
         mac = arp_table['mac_address']
         subnet_id = arp_table['subnet_id']
         ri._update_arp_entry(ip, mac, subnet_id, 'delete')
+
+    def add_fip_arp_entry(self, context, data):
+        """ ARP-1 associate fip """
+        external_network_id = data['external_network_id']
+        fip_gateway_port_id = data['fip_gateway_port_id']
+        arp_dict = data['arp_dict']
+        fip_ns = self.get_fip_ns(external_network_id)
+        ip = ip_lib.IPWrapper(namespace=fip_ns.get_name())
+        # ARP.3 do not have fip-xxx ns
+        if ip.netns.exists(fip_ns.get_name()):
+            fip_ns.add_fip_arp_entry(fip_gateway_port_id, arp_dict)
+        else:
+            LOG.error("fip namespace not found, %s .", fip_ns.get_name())
+
+    def del_fip_arp_entry(self, context, data):
+        """ ARP-2 disassociate fip """
+        external_network_id = data['external_network_id']
+        fip_gateway_port_id = data['fip_gateway_port_id']
+        arp_dict = data['arp_dict']
+        fip_ns = self.get_fip_ns(external_network_id)
+        ip = ip_lib.IPWrapper(namespace=fip_ns.get_name())
+        # ARP-3 do not have fip-xxx ns
+        if ip.netns.exists(fip_ns.get_name()):
+            fip_ns.del_fip_arp_entry(fip_gateway_port_id, arp_dict)
+
