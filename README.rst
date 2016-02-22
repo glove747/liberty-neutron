@@ -1,6 +1,7 @@
 利用tc给floatingIP限速  
 配置如下：  
-/etc/neutron/rootwrap.d 增加 tc.filters     
+/etc/neutron/rootwrap.d 增加 tc.filters
+
 # neutron-rootwrap command filters for nodes on which neutron is  
 # expected to control network  
 #  
